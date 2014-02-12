@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -61,6 +61,13 @@
 #include "output/outform.h"
 #include "listing.h"
 
+/*
+ * This is the maximum number of optimization passes to do.  If we ever
+ * find a case where the optimizer doesn't naturally converge, we might
+ * have to drop this value so the assembler doesn't appear to just hang.
+ */
+#define MAX_OPTIMIZE (INT_MAX >> 1)
+
 struct forwrefinfo {            /* info held on forward refs. */
     int lineno;
     int operand;
@@ -91,13 +98,14 @@ static char errname[FILENAME_MAX];
 static int globallineno;        /* for forward-reference tracking */
 /* static int pass = 0; */
 struct ofmt *ofmt = &OF_DEFAULT;
+struct ofmt_alias *ofmt_alias = NULL;
 const struct dfmt *dfmt;
 
 static FILE *error_file;        /* Where to write error messages */
 
 FILE *ofile = NULL;
-int optimizing = -1;            /* number of optimization passes to take */
-static int sb, cmd_sb = 16;     /* by default */
+int optimizing = MAX_OPTIMIZE; /* number of optimization passes to take */
+static int sb, cmd_sb = 16;    /* by default */
 static uint32_t cmd_cpu = IF_PLEVEL;       /* highest level by default */
 static uint32_t cpu = IF_PLEVEL;   /* passed to insn_size & assemble.c */
 int64_t global_offset_changed;      /* referenced in labels.c */
@@ -114,7 +122,8 @@ static struct RAA *offsets;
 static struct SAA *forwrefs;    /* keep track of forward references */
 static const struct forwrefinfo *forwref;
 
-static Preproc *preproc;
+static struct preproc_ops *preproc;
+
 enum op_type {
     op_normal,                  /* Preprocess and assemble */
     op_preprocess,              /* Preprocess only */
@@ -152,21 +161,8 @@ static const struct warning {
     {"float-underflow", "floating point underflow", false},
     {"float-toolong", "too many digits in floating-point number", true},
     {"user", "%warning directives", true},
-};
-
-/*
- * This is a null preprocessor which just copies lines from input
- * to output. It's used when someone explicitly requests that NASM
- * not preprocess their source file.
- */
-
-static void no_pp_reset(char *, int, ListGen *, StrList **);
-static char *no_pp_getline(void);
-static void no_pp_cleanup(int);
-static Preproc no_pp = {
-    no_pp_reset,
-    no_pp_getline,
-    no_pp_cleanup
+    {"lock", "lock prefix on unlockable instructions", true},
+    {"hle", "invalid hle prefixes", true},
 };
 
 /*
@@ -221,13 +217,13 @@ static void define_macros_early(void)
 	lt = *lt_p;
 
 	strftime(temp, sizeof temp, "__DATE__=\"%Y-%m-%d\"", &lt);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
 	strftime(temp, sizeof temp, "__DATE_NUM__=%Y%m%d", &lt);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
 	strftime(temp, sizeof temp, "__TIME__=\"%H:%M:%S\"", &lt);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
 	strftime(temp, sizeof temp, "__TIME_NUM__=%H%M%S", &lt);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
     }
 
     gm_p = gmtime(&official_compile_time);
@@ -235,13 +231,13 @@ static void define_macros_early(void)
 	gm = *gm_p;
 
 	strftime(temp, sizeof temp, "__UTC_DATE__=\"%Y-%m-%d\"", &gm);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
 	strftime(temp, sizeof temp, "__UTC_DATE_NUM__=%Y%m%d", &gm);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
 	strftime(temp, sizeof temp, "__UTC_TIME__=\"%H:%M:%S\"", &gm);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
 	strftime(temp, sizeof temp, "__UTC_TIME_NUM__=%H%M%S", &gm);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
     }
 
     if (gm_p)
@@ -253,7 +249,7 @@ static void define_macros_early(void)
 
     if (posix_time) {
 	snprintf(temp, sizeof temp, "__POSIX_TIME__=%"PRId64, posix_time);
-	pp_pre_define(temp);
+	preproc->pre_define(temp);
     }
 }
 
@@ -261,9 +257,14 @@ static void define_macros_late(void)
 {
     char temp[128];
 
-    snprintf(temp, sizeof(temp), "__OUTPUT_FORMAT__=%s\n",
-	     ofmt->shortname);
-    pp_pre_define(temp);
+    /*
+     * In case if output format is defined by alias
+     * we have to put shortname of the alias itself here
+     * otherwise ABI backward compatibility gets broken.
+     */
+    snprintf(temp, sizeof(temp), "__OUTPUT_FORMAT__=%s",
+             ofmt_alias ? ofmt_alias->shortname : ofmt->shortname);
+    preproc->pre_define(temp);
 }
 
 static void emit_dependencies(StrList *list)
@@ -345,7 +346,7 @@ int main(int argc, char **argv)
         ofmt->current_dfmt = &null_debug_form;
 
     if (ofmt->stdmac)
-        pp_extra_stdmac(ofmt->stdmac);
+        preproc->extra_stdmac(ofmt->stdmac);
     parser_global_info(&location);
     eval_global_info(ofmt, lookup_label, &location);
 
@@ -363,7 +364,7 @@ int main(int argc, char **argv)
             char *line;
 
 	    if (depend_missing_ok)
-		pp_include_path(NULL);	/* "assume generated" */
+		preproc->include_path(NULL);	/* "assume generated" */
 
             preproc->reset(inname, 0, &nasmlist, depend_ptr);
             if (outname[0] == '\0')
@@ -393,8 +394,9 @@ int main(int argc, char **argv)
 
             location.known = false;
 
-	    /* pass = 1; */
+            /* pass = 1; */
             preproc->reset(inname, 3, &nasmlist, depend_ptr);
+            memcpy(warning_on, warning_on_global, (ERR_WARN_MAX+1) * sizeof(bool));
 
             while ((line = preproc->getline())) {
                 /*
@@ -645,7 +647,7 @@ static bool process_arg(char *p, char *q)
 	    break;
 
 	case 'f':		/* output format */
-	    ofmt = ofmt_find(param);
+        ofmt = ofmt_find(param, &ofmt_alias);
 	    if (!ofmt) {
 		nasm_error(ERR_FATAL | ERR_NOFILE | ERR_USAGE,
 			     "unrecognised output format `%s' - "
@@ -659,7 +661,7 @@ static bool process_arg(char *p, char *q)
 
 	    if (!*param) {
 		/* Naked -O == -Ox */
-		optimizing = INT_MAX >> 1; /* Almost unlimited */
+		optimizing = MAX_OPTIMIZE;
 	    } else {
 		while (*param) {
 		    switch (*param) {
@@ -683,7 +685,7 @@ static bool process_arg(char *p, char *q)
 
 		    case 'x':
 			param++;
-			optimizing = INT_MAX >> 1; /* Almost unlimited */
+			optimizing = MAX_OPTIMIZE;
 			break;
 
 		    default:
@@ -693,28 +695,30 @@ static bool process_arg(char *p, char *q)
 			break;
 		    }
 		}
+		if (optimizing > MAX_OPTIMIZE)
+		    optimizing = MAX_OPTIMIZE;
 	    }
 	    break;
 	}
 
 	case 'p':			/* pre-include */
 	case 'P':
-	    pp_pre_include(param);
+	    preproc->pre_include(param);
 	    break;
 
 	case 'd':			/* pre-define */
 	case 'D':
-	    pp_pre_define(param);
+	    preproc->pre_define(param);
 	    break;
 
 	case 'u':			/* un-define */
 	case 'U':
-	    pp_pre_undefine(param);
+	    preproc->pre_undefine(param);
 	    break;
 
 	case 'i':			/* include search path */
 	case 'I':
-	    pp_include_path(param);
+	    preproc->include_path(param);
 	    break;
 
 	case 'l':			/* listing file */
@@ -775,9 +779,9 @@ static bool process_arg(char *p, char *q)
                  "    -I<path>    adds a pathname to the include file path\n");
             printf
                 ("    -O<digit>   optimize branch offsets\n"
-                 "                -O0: No optimization (default)\n"
+                 "                -O0: No optimization\n"
                  "                -O1: Minimal optimization\n"
-                 "                -Ox: Multipass optimization (recommended)\n\n"
+                 "                -Ox: Multipass optimization (default)\n\n"
                  "    -P<file>    pre-includes a file\n"
                  "    -D<macro>[=<value>] pre-defines a macro\n"
                  "    -U<macro>   undefines a macro\n"
@@ -829,7 +833,7 @@ static bool process_arg(char *p, char *q)
             break;
 
         case 'a':              /* assemble only - don't preprocess */
-            preproc = &no_pp;
+            preproc = &preproc_nop;
             break;
 
 	case 'W':
@@ -849,22 +853,24 @@ static bool process_arg(char *p, char *q)
             }
 	    do_warn = (param[0] == '+');
 	    param++;
-	    goto set_warning;
-	set_warning:
-	    for (i = 0; i <= ERR_WARN_MAX; i++)
-		if (!nasm_stricmp(param, warnings[i].name))
-		    break;
-	    if (i <= ERR_WARN_MAX)
-		warning_on_global[i] = do_warn;
-	    else if (!nasm_stricmp(param, "all"))
-		for (i = 1; i <= ERR_WARN_MAX; i++)
-		    warning_on_global[i] = do_warn;
-	    else if (!nasm_stricmp(param, "none"))
-		for (i = 1; i <= ERR_WARN_MAX; i++)
-		    warning_on_global[i] = !do_warn;
-	    else
-		nasm_error(ERR_NONFATAL | ERR_NOFILE | ERR_USAGE,
-			     "invalid warning `%s'", param);
+
+set_warning:
+            for (i = 0; i <= ERR_WARN_MAX; i++) {
+                if (!nasm_stricmp(param, warnings[i].name))
+                    break;
+            }
+            if (i <= ERR_WARN_MAX) {
+                warning_on_global[i] = do_warn;
+            } else if (!nasm_stricmp(param, "all")) {
+                for (i = 1; i <= ERR_WARN_MAX; i++)
+                    warning_on_global[i] = do_warn;
+            } else if (!nasm_stricmp(param, "none")) {
+                for (i = 1; i <= ERR_WARN_MAX; i++)
+                    warning_on_global[i] = !do_warn;
+            } else {
+                nasm_error(ERR_NONFATAL | ERR_NOFILE | ERR_USAGE,
+                           "invalid warning `%s'", param);
+            }
             break;
 
         case 'M':
@@ -1077,18 +1083,18 @@ static void process_response_file(const char *file)
 static void parse_cmdline(int argc, char **argv)
 {
     FILE *rfile;
-    char *envreal, *envcopy = NULL, *p, *arg;
+    char *envreal, *envcopy = NULL, *p;
     int i;
 
     *inname = *outname = *listname = *errname = '\0';
+
     for (i = 0; i <= ERR_WARN_MAX; i++)
-	warning_on_global[i] = warnings[i].enabled;
+        warning_on_global[i] = warnings[i].enabled;
 
     /*
      * First, process the NASMENV environment variable.
      */
     envreal = getenv("NASMENV");
-    arg = NULL;
     if (envreal) {
         envcopy = nasm_strdup(envreal);
         process_args(envcopy);
@@ -1099,23 +1105,24 @@ static void parse_cmdline(int argc, char **argv)
      * Now process the actual command line.
      */
     while (--argc) {
-	bool advance;
+        bool advance;
         argv++;
         if (argv[0][0] == '@') {
-            /* We have a response file, so process this as a set of
+            /*
+             * We have a response file, so process this as a set of
              * arguments like the environment variable. This allows us
              * to have multiple arguments on a single line, which is
              * different to the -@resp file processing below for regular
              * NASM.
              */
-	    process_response_file(argv[0]+1);
+            process_response_file(argv[0]+1);
             argc--;
             argv++;
         }
         if (!stopoptions && argv[0][0] == '-' && argv[0][1] == '@') {
-	    p = get_param(argv[0], argc > 1 ? argv[1] : NULL, &advance);
+            p = get_param(argv[0], argc > 1 ? argv[1] : NULL, &advance);
             if (p) {
-		rfile = fopen(p, "r");
+                rfile = fopen(p, "r");
                 if (rfile) {
                     process_respfile(rfile);
                     fclose(rfile);
@@ -1128,27 +1135,29 @@ static void parse_cmdline(int argc, char **argv)
         argv += advance, argc -= advance;
     }
 
-    /* Look for basic command line typos.  This definitely doesn't
-       catch all errors, but it might help cases of fumbled fingers. */
+    /*
+     * Look for basic command line typos. This definitely doesn't
+     * catch all errors, but it might help cases of fumbled fingers.
+     */
     if (!*inname)
         nasm_error(ERR_NONFATAL | ERR_NOFILE | ERR_USAGE,
-                     "no input file specified");
-    else if (!strcmp(inname, errname) ||
-	     !strcmp(inname, outname) ||
-	     !strcmp(inname, listname) ||
-	     (depend_file && !strcmp(inname, depend_file)))
-	nasm_error(ERR_FATAL | ERR_NOFILE | ERR_USAGE,
-		     "file `%s' is both input and output file",
-		     inname);
+                   "no input file specified");
+    else if (!strcmp(inname, errname)   ||
+             !strcmp(inname, outname)   ||
+             !strcmp(inname, listname)  ||
+             (depend_file && !strcmp(inname, depend_file)))
+        nasm_error(ERR_FATAL | ERR_NOFILE | ERR_USAGE,
+                   "file `%s' is both input and output file",
+                   inname);
 
     if (*errname) {
-	error_file = fopen(errname, "w");
-	if (!error_file) {
-	    error_file = stderr;        /* Revert to default! */
-	    nasm_error(ERR_FATAL | ERR_NOFILE | ERR_USAGE,
-			 "cannot open file `%s' for error messages",
-			 errname);
-	}
+        error_file = fopen(errname, "w");
+        if (!error_file) {
+            error_file = stderr;        /* Revert to default! */
+            nasm_error(ERR_FATAL | ERR_NOFILE | ERR_USAGE,
+                       "cannot open file `%s' for error messages",
+                       errname);
+        }
     }
 }
 
@@ -1232,7 +1241,33 @@ static void assemble_file(char *fname, StrList **depend_ptr)
                         location.segment = seg;
                     }
                     break;
-                case D_EXTERN:		/* [EXTERN label:special] */
+                case D_SECTALIGN:        /* [SECTALIGN n] */
+                    if (*value) {
+                        stdscan_reset();
+                        stdscan_set(value);
+                        tokval.t_type = TOKEN_INVALID;
+                        e = evaluate(stdscan, NULL, &tokval, NULL, pass2, nasm_error, NULL);
+                        if (e) {
+                            unsigned int align = (unsigned int)e->value;
+                            if ((uint64_t)e->value > 0x7fffffff) {
+                                /*
+                                 * FIXME: Please make some sane message here
+                                 * ofmt should have some 'check' method which
+                                 * would report segment alignment bounds.
+                                 */
+                                nasm_error(ERR_FATAL,
+                                           "incorrect segment alignment `%s'", value);
+                            } else if (!is_power2(align)) {
+                                nasm_error(ERR_NONFATAL,
+                                           "segment alignment `%s' is not power of two",
+                                            value);
+                            }
+                            /* callee should be able to handle all details */
+                            ofmt->sectalign(location.segment, align);
+                        }
+                    }
+                    break;
+                case D_EXTERN:              /* [EXTERN label:special] */
                     if (*value == '$')
                         value++;        /* skip initial $ if present */
                     if (pass0 == 2) {
@@ -1496,10 +1531,13 @@ static void assemble_file(char *fname, StrList **depend_ptr)
 		    }
 		    break;
                 default:
-		    if (!d || !ofmt->directive(d, value, pass2))
-                        nasm_error(pass1 == 1 ? ERR_NONFATAL : ERR_PANIC,
-                                     "unrecognised directive [%s]",
-                                     directive);
+		    if (ofmt->directive(d, value, pass2))
+			break;
+		    /* else fall through */
+		case D_unknown:
+		    nasm_error(pass1 == 1 ? ERR_NONFATAL : ERR_PANIC,
+			       "unrecognised directive [%s]",
+			       directive);
 		    break;
                 }
 		if (err) {
@@ -1750,16 +1788,16 @@ static enum directives getkw(char **directive, char **value)
 
     /* it should be enclosed in [ ] */
     if (*buf != '[')
-        return D_NONE;
+        return D_none;
     q = strchr(buf, ']');
     if (!q)
-        return D_NONE;
+        return D_none;
 
     /* stip off the comments */
     p = strchr(buf, ';');
     if (p) {
         if (p < q) /* ouch! somwhere inside */
-            return D_NONE;
+            return D_none;
         *p = '\0';
     }
 
@@ -1771,7 +1809,7 @@ static enum directives getkw(char **directive, char **value)
     p = nasm_skip_spaces(++buf);
     q = nasm_skip_word(p);
     if (!q)
-        return D_NONE; /* sigh... no value there */
+        return D_none; /* sigh... no value there */
     *q = '\0';
     *directive = p;
 
@@ -1863,15 +1901,20 @@ static void nasm_verror_vc(int severity, const char *fmt, va_list ap)
  */
 static bool is_suppressed_warning(int severity)
 {
-    /*
-     * See if it's a suppressed warning.
-     */
-    return (severity & ERR_MASK) == ERR_WARNING &&
-	(((severity & ERR_WARN_MASK) != 0 &&
-	  !warning_on[(severity & ERR_WARN_MASK) >> ERR_WARN_SHR]) ||
-	 /* See if it's a pass-one only warning and we're not in pass one. */
-	 ((severity & ERR_PASS1) && pass0 != 1) ||
-	 ((severity & ERR_PASS2) && pass0 != 2));
+    /* Not a warning at all */
+    if ((severity & ERR_MASK) != ERR_WARNING)
+        return false;
+
+    /* See if it's a pass-one only warning and we're not in pass one. */
+    if (((severity & ERR_PASS1) && pass0 != 1) ||
+        ((severity & ERR_PASS2) && pass0 != 2))
+        return true;
+
+    /* Might be a warning but suppresed explicitly */
+    if (severity & ERR_WARN_MASK)
+        return !warning_on[WARN_IDX(severity)];
+    else
+        return false;
 }
 
 /**
@@ -1925,7 +1968,8 @@ static void nasm_verror_common(int severity, const char *fmt, va_list args)
         /* no further action, by definition */
         break;
     case ERR_WARNING:
-	if (warning_on[0])	/* Treat warnings as errors */
+	/* Treat warnings as errors */
+	if (warning_on[WARN_IDX(ERR_WARN_TERM)])
 	    terminate_after_phase = true;
 	break;
     case ERR_NONFATAL:
@@ -1952,98 +1996,6 @@ static void nasm_verror_common(int severity, const char *fmt, va_list args)
 static void usage(void)
 {
     fputs("type `nasm -h' for help\n", error_file);
-}
-
-#define BUF_DELTA 512
-
-static FILE *no_pp_fp;
-static ListGen *no_pp_list;
-static int32_t no_pp_lineinc;
-
-static void no_pp_reset(char *file, int pass, ListGen * listgen,
-			StrList **deplist)
-{
-    src_set_fname(nasm_strdup(file));
-    src_set_linnum(0);
-    no_pp_lineinc = 1;
-    no_pp_fp = fopen(file, "r");
-    if (!no_pp_fp)
-        nasm_error(ERR_FATAL | ERR_NOFILE,
-		   "unable to open input file `%s'", file);
-    no_pp_list = listgen;
-    (void)pass;                 /* placate compilers */
-
-    if (deplist) {
-	StrList *sl = nasm_malloc(strlen(file)+1+sizeof sl->next);
-	sl->next = NULL;
-	strcpy(sl->str, file);
-	*deplist = sl;
-    }
-}
-
-static char *no_pp_getline(void)
-{
-    char *buffer, *p, *q;
-    int bufsize;
-
-    bufsize = BUF_DELTA;
-    buffer = nasm_malloc(BUF_DELTA);
-    src_set_linnum(src_get_linnum() + no_pp_lineinc);
-
-    while (1) {                 /* Loop to handle %line */
-
-        p = buffer;
-        while (1) {             /* Loop to handle long lines */
-            q = fgets(p, bufsize - (p - buffer), no_pp_fp);
-            if (!q)
-                break;
-            p += strlen(p);
-            if (p > buffer && p[-1] == '\n')
-                break;
-            if (p - buffer > bufsize - 10) {
-                int offset;
-                offset = p - buffer;
-                bufsize += BUF_DELTA;
-                buffer = nasm_realloc(buffer, bufsize);
-                p = buffer + offset;
-            }
-        }
-
-        if (!q && p == buffer) {
-            nasm_free(buffer);
-            return NULL;
-        }
-
-        /*
-         * Play safe: remove CRs, LFs and any spurious ^Zs, if any of
-         * them are present at the end of the line.
-         */
-        buffer[strcspn(buffer, "\r\n\032")] = '\0';
-
-        if (!nasm_strnicmp(buffer, "%line", 5)) {
-            int32_t ln;
-            int li;
-            char *nm = nasm_malloc(strlen(buffer));
-            if (sscanf(buffer + 5, "%"PRId32"+%d %s", &ln, &li, nm) == 3) {
-                nasm_free(src_set_fname(nm));
-                src_set_linnum(ln);
-                no_pp_lineinc = li;
-                continue;
-            }
-            nasm_free(nm);
-        }
-        break;
-    }
-
-    no_pp_list->line(LIST_READ, buffer);
-
-    return buffer;
-}
-
-static void no_pp_cleanup(int pass)
-{
-    (void)pass;                     /* placate GCC */
-    fclose(no_pp_fp);
 }
 
 static uint32_t get_cpu(char *value)

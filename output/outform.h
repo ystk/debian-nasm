@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
- *   
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *
+ *   Copyright 1996-2011 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -14,7 +14,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *     
+ *
  *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
  *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
  *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -106,6 +106,9 @@
 #ifndef OF_ELF32
 #define OF_ELF32
 #endif
+#ifndef OF_ELFX32
+#define OF_ELFX32
+#endif
 #ifndef OF_ELF64
 #define OF_ELF64
 #endif
@@ -153,7 +156,7 @@
 #define OF_BIN
 #endif
 #ifndef OF_COFF
-#define OF_COFF			/* COFF is used by DJGPP */
+#define OF_COFF                 /* COFF is used by DJGPP */
 #endif
 #ifndef OF_WIN32
 #define OF_WIN32
@@ -178,6 +181,9 @@
 #endif
 #ifndef OF_ELF64
 #define OF_ELF64
+#endif
+#ifndef OF_ELFX32
+#define OF_ELFX32
 #endif
 #endif
 
@@ -214,6 +220,9 @@
 #endif
 #ifdef OF_NO_ELF64
 #undef OF_ELF64
+#endif
+#ifdef OF_NO_ELFX32
+#undef OF_ELFX32
 #endif
 #ifdef OF_NO_AOUT
 #undef OF_AOUT
@@ -260,7 +269,7 @@ extern struct ofmt of_aout;
 extern struct ofmt of_aoutb;
 extern struct ofmt of_coff;
 extern struct ofmt of_elf32;
-extern struct ofmt of_elf;
+extern struct ofmt of_elfx32;
 extern struct ofmt of_elf64;
 extern struct ofmt of_as86;
 extern struct ofmt of_obj;
@@ -269,14 +278,15 @@ extern struct ofmt of_win64;
 extern struct ofmt of_rdf2;
 extern struct ofmt of_ieee;
 extern struct ofmt of_macho32;
-extern struct ofmt of_macho;
 extern struct ofmt of_macho64;
 extern struct ofmt of_dbg;
 
 #ifdef BUILD_DRIVERS_ARRAY      /* only if included from outform.c */
 
-/* pull in the externs for the different formats, then make the *drivers
- * array based on the above defines */
+/*
+ * pull in the externs for the different formats, then make the
+ * drivers array based on the above defines
+ */
 
 static struct ofmt *drivers[] = {
 #ifdef OF_BIN
@@ -295,10 +305,12 @@ static struct ofmt *drivers[] = {
 #endif
 #ifdef OF_ELF32
     &of_elf32,
-    &of_elf,
 #endif
 #ifdef OF_ELF64
     &of_elf64,
+#endif
+#ifdef OF_ELFX32
+    &of_elfx32,
 #endif
 #ifdef OF_AS86
     &of_as86,
@@ -320,7 +332,6 @@ static struct ofmt *drivers[] = {
 #endif
 #ifdef OF_MACHO32
     &of_macho32,
-	&of_macho,
 #endif
 #ifdef OF_MACHO64
     &of_macho64,
@@ -332,13 +343,38 @@ static struct ofmt *drivers[] = {
     NULL
 };
 
-#endif                          /* BUILD_DRIVERS_ARRAY */
+static struct ofmt_alias ofmt_aliases[] = {
+#ifdef OF_ELF32
+    {
+        "elf",
+        "ELF (short name for ELF32)",
+        &of_elf32,
+    },
+#endif
+#ifdef OF_MACHO32
+    {
+        "macho",
+        "MACHO (short name for MACHO32)",
+        &of_macho32,
+    },
+#endif
+#ifdef OF_WIN32
+    {
+        "win",
+        "WIN (short name for WIN32)",
+        &of_win32,
+    },
+#endif
+    { NULL, NULL, NULL }
+};
 
-struct ofmt *ofmt_find(char *);
+#endif /* BUILD_DRIVERS_ARRAY */
+
+struct ofmt *ofmt_find(char *name, struct ofmt_alias **ofmt_alias);
 struct dfmt *dfmt_find(struct ofmt *, char *);
 void ofmt_list(struct ofmt *, FILE *);
 void dfmt_list(struct ofmt *ofmt, FILE * fp);
 struct ofmt *ofmt_register(efunc error);
 extern struct dfmt null_debug_form;
 
-#endif                          /* NASM_OUTFORM_H */
+#endif /* NASM_OUTFORM_H */

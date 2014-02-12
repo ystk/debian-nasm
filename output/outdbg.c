@@ -147,6 +147,10 @@ static void dbg_out(int32_t segto, const void *data,
         fprintf(ofile, "addr %08"PRIx32" (seg %08"PRIx32", wrt %08"PRIx32")\n", ldata,
                 segment, wrt);
         break;
+    case OUT_REL1ADR:
+        fprintf(ofile, "rel1adr %02"PRIx8" (seg %08"PRIx32")\n",
+		(uint8_t)*(int64_t *)data, segment);
+        break;
     case OUT_REL2ADR:
         fprintf(ofile, "rel2adr %04"PRIx16" (seg %08"PRIx32")\n",
 		(uint16_t)*(int64_t *)data, segment);
@@ -164,6 +168,12 @@ static void dbg_out(int32_t segto, const void *data,
         fprintf(ofile, "unknown\n");
         break;
     }
+}
+
+static void dbg_sectalign(int32_t seg, unsigned int value)
+{
+    fprintf(ofile, "set alignment (%d) for segment (%d)\n",
+            seg, value);	
 }
 
 static int32_t dbg_segbase(int32_t segment)
@@ -259,6 +269,7 @@ struct ofmt of_dbg = {
     dbg_out,
     dbg_deflabel,
     dbg_section_names,
+    dbg_sectalign,
     dbg_segbase,
     dbg_directive,
     dbg_filename,

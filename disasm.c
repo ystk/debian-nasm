@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -197,28 +197,11 @@ static enum reg_enum whichreg(opflags_t regflags, int regval, int rex)
 }
 
 /*
- * Process a DREX suffix
- */
-static uint8_t *do_drex(uint8_t *data, insn *ins)
-{
-    uint8_t drex = *data++;
-    operand *dst = &ins->oprs[ins->drexdst];
-
-    if ((drex & 8) != ((ins->rex & REX_OC) ? 8 : 0))
-	return NULL;	/* OC0 mismatch */
-    ins->rex = (ins->rex & ~7) | (drex & 7);
-
-    dst->segment = SEG_RMREG;
-    dst->basereg = drex >> 4;
-    return data;
-}
-
-
-/*
  * Process an effective address (ModRM) specification.
  */
 static uint8_t *do_ea(uint8_t *data, int modrm, int asize,
-		      int segsize, operand * op, insn *ins)
+		      int segsize, enum ea_type type,
+                      operand *op, insn *ins)
 {
     int mod, rm, scale, index, base;
     int rex;
@@ -227,14 +210,9 @@ static uint8_t *do_ea(uint8_t *data, int modrm, int asize,
     mod = (modrm >> 6) & 03;
     rm = modrm & 07;
 
-    if (mod != 3 && rm == 4 && asize != 16)
+    if (mod != 3 && asize != 16 && rm == 4)
 	sib = *data++;
 
-    if (ins->rex & REX_D) {
-	data = do_drex(data, ins);
-	if (!data)
-	    return NULL;
-    }
     rex = ins->rex;
 
     if (mod == 3) {             /* pure register version */
@@ -253,6 +231,10 @@ static uint8_t *do_ea(uint8_t *data, int modrm, int asize,
          * Exception: mod=0,rm=6 does not specify [BP] as one might
          * expect, but instead specifies [disp16].
          */
+
+        if (type != EA_SCALAR)
+            return NULL;
+
         op->indexreg = op->basereg = -1;
         op->scale = 1;          /* always, in 16 bits */
         switch (rm) {
@@ -341,6 +323,7 @@ static uint8_t *do_ea(uint8_t *data, int modrm, int asize,
 	    mod = 2;            /* fake disp32 */
         }
 
+
         if (rm == 4) {          /* process SIB */
             scale = (sib >> 6) & 03;
             index = (sib >> 3) & 07;
@@ -348,9 +331,13 @@ static uint8_t *do_ea(uint8_t *data, int modrm, int asize,
 
             op->scale = 1 << scale;
 
-	    if (index == 4 && !(rex & REX_X))
+	    if (type == EA_XMMVSIB)
+		op->indexreg = nasm_rd_xmmreg[index | ((rex & REX_X) ? 8 : 0)];
+	    else if (type == EA_YMMVSIB)
+		op->indexreg = nasm_rd_ymmreg[index | ((rex & REX_X) ? 8 : 0)];
+	    else if (index == 4 && !(rex & REX_X))
 		op->indexreg = -1; /* ESP/RSP cannot be an index */
-	    else if (a64)
+            else if (a64)
 		op->indexreg = nasm_rd_reg64[index | ((rex & REX_X) ? 8 : 0)];
 	    else
 		op->indexreg = nasm_rd_reg32[index | ((rex & REX_X) ? 8 : 0)];
@@ -365,6 +352,9 @@ static uint8_t *do_ea(uint8_t *data, int modrm, int asize,
 
 	    if (segsize == 16)
 		op->disp_size = 32;
+        } else if (type != EA_SCALAR) {
+            /* Can't have VSIB without SIB */
+            return NULL;
         }
 
         switch (mod) {
@@ -410,6 +400,7 @@ static int matches(const struct itemplate *t, uint8_t *data,
     int s_field_for = -1;	/* No 144/154 series code encountered */
     bool vex_ok = false;
     int regmask = (segsize == 64) ? 15 : 7;
+    enum ea_type eat = EA_SCALAR;
 
     for (i = 0; i < MAX_OPERANDS; i++) {
 	ins->oprs[i].segment = ins->oprs[i].disp_size =
@@ -573,7 +564,7 @@ static int matches(const struct itemplate *t, uint8_t *data,
 	{
 	    int modrm = *data++;
             opx->segment |= SEG_RMREG;
-            data = do_ea(data, modrm, asize, segsize, opy, ins);
+            data = do_ea(data, modrm, asize, segsize, eat, opy, ins);
 	    if (!data)
 		return false;
             opx->basereg = ((modrm >> 3) & 7) + (ins->rex & REX_R ? 8 : 0);
@@ -607,22 +598,6 @@ static int matches(const struct itemplate *t, uint8_t *data,
 	    }
 	    break;
 
-	case4(0160):
-	    ins->rex |= REX_D;
-	    ins->drexdst = op1;
-	    break;
-
-	case4(0164):
-	    ins->rex |= REX_D|REX_OC;
-	    ins->drexdst = op1;
-	    break;
-
-	case 0171:
-	    data = do_drex(data, ins);
-	    if (!data)
-		return false;
-	    break;
-
 	case 0172:
 	{
 	    uint8_t ximm = *data++;
@@ -646,13 +621,12 @@ static int matches(const struct itemplate *t, uint8_t *data,
 	}
 	break;
 
-	case 0174:
+	case4(0174):
 	{
 	    uint8_t ximm = *data++;
-	    c = *r++;
 
-	    ins->oprs[c].basereg = (ximm >> 4) & regmask;
-	    ins->oprs[c].segment |= SEG_RMREG;
+	    opx->basereg = (ximm >> 4) & regmask;
+	    opx->segment |= SEG_RMREG;
 	}
 	break;
 
@@ -668,82 +642,87 @@ static int matches(const struct itemplate *t, uint8_t *data,
             int modrm = *data++;
             if (((modrm >> 3) & 07) != (c & 07))
                 return false;   /* spare field doesn't match up */
-            data = do_ea(data, modrm, asize, segsize, opy, ins);
+            data = do_ea(data, modrm, asize, segsize, eat, opy, ins);
 	    if (!data)
 		return false;
 	    break;
 	}
 
-	case4(0260):
-	{
-	    int vexm   = *r++;
-	    int vexwlp = *r++;
-	    ins->rex |= REX_V;
-	    if ((prefix->rex & (REX_V|REX_D|REX_P)) != REX_V)
-		return false;
-
-	    if ((vexm & 0x1f) != prefix->vex_m)
-		return false;
-
-	    switch (vexwlp & 030) {
-	    case 000:
-		if (prefix->rex & REX_W)
-		    return false;
-		break;
-	    case 010:
-		if (!(prefix->rex & REX_W))
-		    return false;
-		ins->rex &= ~REX_W;
-		break;
-	    case 020:		/* VEX.W is a don't care */
-		ins->rex &= ~REX_W;
-		break;
-	    case 030:
-		break;
+	case4(0250):
+	    if (s_field_for == op1) {
+		opx->offset = gets8(data);
+		data++;
+	    } else {
+		opx->offset = gets32(data);
+		data += 4;
 	    }
-
-	    if ((vexwlp & 007) != prefix->vex_lp)
-		return false;
-
-	    opx->segment |= SEG_RMREG;
-	    opx->basereg = prefix->vex_v;
-	    vex_ok = true;
 	    break;
-	}
 
+	case4(0260):
 	case 0270:
 	{
 	    int vexm   = *r++;
 	    int vexwlp = *r++;
+
 	    ins->rex |= REX_V;
-	    if ((prefix->rex & (REX_V|REX_D|REX_P)) != REX_V)
+	    if ((prefix->rex & (REX_V|REX_P)) != REX_V)
 		return false;
 
 	    if ((vexm & 0x1f) != prefix->vex_m)
 		return false;
 
-	    switch (vexwlp & 030) {
+	    switch (vexwlp & 060) {
 	    case 000:
-		if (ins->rex & REX_W)
+		if (prefix->rex & REX_W)
 		    return false;
 		break;
-	    case 010:
-		if (!(ins->rex & REX_W))
+	    case 020:
+		if (!(prefix->rex & REX_W))
 		    return false;
+		ins->rex &= ~REX_W;
 		break;
-	    default:
-		break;		/* Need to do anything special here? */
+	    case 040:		/* VEX.W is a don't care */
+		ins->rex &= ~REX_W;
+		break;
+	    case 060:
+		break;
 	    }
 
-	    if ((vexwlp & 007) != prefix->vex_lp)
+	    /* The 010 bit of vexwlp is set if VEX.L is ignored */
+	    if ((vexwlp ^ prefix->vex_lp) & ((vexwlp & 010) ? 03 : 07))
 		return false;
 
-	    if (prefix->vex_v != 0)
-		return false;
-
+	    if (c == 0270) {
+		if (prefix->vex_v != 0)
+		    return false;
+	    } else {
+		opx->segment |= SEG_RMREG;
+		opx->basereg = prefix->vex_v;
+	    }
 	    vex_ok = true;
 	    break;
 	}
+
+        case 0271:
+            if (prefix->rep == 0xF3)
+                drep = P_XRELEASE;
+            break;
+
+        case 0272:
+            if (prefix->rep == 0xF2)
+                drep = P_XACQUIRE;
+            else if (prefix->rep == 0xF3)
+                drep = P_XRELEASE;
+            break;
+
+        case 0273:
+            if (prefix->lock == 0xF0) {
+                if (prefix->rep == 0xF2)
+                    drep = P_XACQUIRE;
+                else if (prefix->rep == 0xF3)
+                    drep = P_XRELEASE;
+            }
+            break;
 
 	case 0310:
             if (asize != 16)
@@ -821,7 +800,7 @@ static int matches(const struct itemplate *t, uint8_t *data,
 	    break;
 
 	case 0324:
-	    if (!(ins->rex & (REX_P|REX_W)) || osize != 64)
+	    if (osize != 64)
 		return false;
 	    o_used = true;
 	    break;
@@ -931,6 +910,18 @@ static int matches(const struct itemplate *t, uint8_t *data,
 	    a_used = true;
 	    break;
 
+        case 0370:
+        case 0371:
+            break;
+
+        case 0374:
+            eat = EA_XMMVSIB;
+            break;
+
+        case 0375:
+            eat = EA_YMMVSIB;
+            break;
+
 	default:
 	    return false;	/* Unknown code */
 	}
@@ -939,8 +930,8 @@ static int matches(const struct itemplate *t, uint8_t *data,
     if (!vex_ok && (ins->rex & REX_V))
 	return false;
 
-    /* REX cannot be combined with DREX or VEX */
-    if ((ins->rex & (REX_D|REX_V)) && (prefix->rex & REX_P))
+    /* REX cannot be combined with VEX */
+    if ((ins->rex & REX_V) && (prefix->rex & REX_P))
 	return false;
 
     /*
@@ -952,14 +943,14 @@ static int matches(const struct itemplate *t, uint8_t *data,
     }
 
     if (lock) {
-	if (ins->prefixes[PPS_LREP])
+	if (ins->prefixes[PPS_LOCK])
 	    return false;
-	ins->prefixes[PPS_LREP] = P_LOCK;
+	ins->prefixes[PPS_LOCK] = P_LOCK;
     }
     if (drep) {
-	if (ins->prefixes[PPS_LREP])
+	if (ins->prefixes[PPS_REP])
 	    return false;
-        ins->prefixes[PPS_LREP] = drep;
+        ins->prefixes[PPS_REP] = drep;
     }
     ins->prefixes[PPS_WAIT] = dwait;
     if (!o_used) {
@@ -1097,7 +1088,7 @@ int32_t disasm(uint8_t *data, char *output, int outbufsize, int segsize,
 		    prefix.vex_lp = prefix.vex[1] & 7;
 		}
 
-		ix = itable_vex[RV_VEX][prefix.vex_m][prefix.vex_lp];
+		ix = itable_vex[RV_VEX][prefix.vex_m][prefix.vex_lp & 3];
 	    }
 	    end_prefix = true;
 	    break;
@@ -1118,7 +1109,7 @@ int32_t disasm(uint8_t *data, char *output, int outbufsize, int segsize,
 		prefix.vex_v = (~prefix.vex[2] >> 3) & 15;
 		prefix.vex_lp = prefix.vex[2] & 7;
 
-		ix = itable_vex[RV_XOP][prefix.vex_m][prefix.vex_lp];
+		ix = itable_vex[RV_XOP][prefix.vex_m][prefix.vex_lp & 3];
 	    }
 	    end_prefix = true;
 	    break;

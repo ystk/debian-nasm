@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -36,7 +36,7 @@
  *
  * the actual codes (C syntax, i.e. octal):
  * \0            - terminates the code. (Unless it's a literal of course.)
- * \1..\4	 - that many literal bytes follow in the code stream
+ * \1..\4        - that many literal bytes follow in the code stream
  * \5            - add 4 to the primary operand number (b, low octdigit)
  * \6            - add 4 to the secondary operand number (a, middle octdigit)
  * \7            - add 4 to both the primary and the secondary operand number
@@ -50,7 +50,7 @@
  *                 assembly mode or the operand-size override on the operand
  * \40..\43      - a long immediate operand, from operand 0..3
  * \44..\47      - select between \3[0-3], \4[0-3] and \5[4-7]
- *		   depending on the address size of the instruction.
+ *                 depending on the address size of the instruction.
  * \50..\53      - a byte relative operand, from operand 0..3
  * \54..\57      - a qword immediate operand, from operand 0..3
  * \60..\63      - a word relative operand, from operand 0..3
@@ -62,23 +62,16 @@
  *                 field the register value of operand b.
  * \140..\143    - an immediate word or signed byte for operand 0..3
  * \144..\147    - or 2 (s-field) into opcode byte if operand 0..3
- *		    is a signed byte rather than a word.  Opcode byte follows.
+ *                  is a signed byte rather than a word.  Opcode byte follows.
  * \150..\153    - an immediate dword or signed byte for operand 0..3
  * \154..\157    - or 2 (s-field) into opcode byte if operand 0..3
- *		    is a signed byte rather than a dword.  Opcode byte follows.
- * \160..\163    - this instruction uses DREX rather than REX, with the
- *		   OC0 field set to 0, and the dest field taken from
- *                 operand 0..3.
- * \164..\167    - this instruction uses DREX rather than REX, with the
- *		   OC0 field set to 1, and the dest field taken from
- *                 operand 0..3.
- * \171		 - placement of DREX suffix in the absence of an EA
- * \172\ab	 - the register number from operand a in bits 7..4, with
+ *                  is a signed byte rather than a dword.  Opcode byte follows.
+ * \172\ab       - the register number from operand a in bits 7..4, with
  *                 the 4-bit immediate from operand b in bits 3..0.
- * \173\xab	 - the register number from operand a in bits 7..4, with
- *		   the value b in bits 3..0.
- * \174\a	 - the register number from operand a in bits 7..4, and
- *		   an arbitrary value in bits 3..0 (assembled as zero.)
+ * \173\xab      - the register number from operand a in bits 7..4, with
+ *                 the value b in bits 3..0.
+ * \174..\177    - the register number from operand 0..3 in bits 7..4, and
+ *                 an arbitrary value in bits 3..0 (assembled as zero.)
  * \2ab          - a ModRM, calculated on EA in operand a, with the spare
  *                 field equal to digit b.
  * \250..\253    - same as \150..\153, except warn if the 64-bit operand
@@ -86,20 +79,27 @@
  *                 operand; used for 32-bit immediates in 64-bit mode.
  * \254..\257    - a signed 32-bit operand to be extended to 64 bits.
  * \260..\263    - this instruction uses VEX/XOP rather than REX, with the
- *		   V field taken from operand 0..3.
- * \270		 - this instruction uses VEX/XOP rather than REX, with the
- *		   V field set to 1111b.
+ *                 V field taken from operand 0..3.
+ * \270          - this instruction uses VEX/XOP rather than REX, with the
+ *                 V field set to 1111b.
  *
  * VEX/XOP prefixes are followed by the sequence:
  * \tmm\wlp        where mm is the M field; and wlp is:
- *                 00 0ww lpp
- *                 [w0] ww = 0 for W = 0
- *                 [w1] ww = 1 for W = 1
- *                 [wx] ww = 2 for W don't care (always assembled as 0)
- *                 [ww] ww = 3 for W used as REX.W
+ *                 00 wwl lpp
+ *		   [l0]  ll = 0 for L = 0 (.128, .lz)
+ *		   [l1]  ll = 1 for L = 1 (.256)
+ *		   [lig] ll = 2 for L don't care (always assembled as 0)
+ *
+ *                 [w0]  ww = 0 for W = 0
+ *                 [w1 ] ww = 1 for W = 1
+ *                 [wig] ww = 2 for W don't care (always assembled as 0)
+ *                 [ww]  ww = 3 for W used as REX.W
  *
  * t = 0 for VEX (C4/C5), t = 1 for XOP (8F).
  *
+ * \271		 - instruction takes XRELEASE (F3) with or without lock
+ * \272		 - instruction takes XACQUIRE/XRELEASE with or without lock
+ * \273          - instruction takes XACQUIRE/XRELEASE with lock only
  * \274..\277    - a signed byte immediate operand, from operand 0..3,
  *                 which is to be extended to the operand size.
  * \310          - indicates fixed 16-bit address size, i.e. optional 0x67.
@@ -117,7 +117,7 @@
  *                 generates no code in the assembler)
  * \323          - indicates fixed 64-bit operand size, REX on extensions only.
  * \324          - indicates 64-bit operand size requiring REX prefix.
- * \325		 - instruction which always uses spl/bpl/sil/dil
+ * \325          - instruction which always uses spl/bpl/sil/dil
  * \330          - a literal byte follows in the code stream, to be added
  *                 to the condition code value of the instruction.
  * \331          - instruction not valid with REP prefix.  Hint for
@@ -126,17 +126,17 @@
  * \333          - REP prefix (0xF3 byte) used as opcode extension.
  * \334          - LOCK prefix used as REX.R (used in non-64-bit mode)
  * \335          - disassemble a rep (0xF3 byte) prefix as repe not rep.
- * \336          - force a REP(E) prefix (0xF2) even if not specified.
- * \337		 - force a REPNE prefix (0xF3) even if not specified.
+ * \336          - force a REP(E) prefix (0xF3) even if not specified.
+ * \337          - force a REPNE prefix (0xF2) even if not specified.
  *                 \336-\337 are still listed as prefixes in the disassembler.
  * \340          - reserve <operand 0> bytes of uninitialized storage.
  *                 Operand 0 had better be a segmentless constant.
- * \341		 - this instruction needs a WAIT "prefix"
+ * \341          - this instruction needs a WAIT "prefix"
  * \344,\345     - the PUSH/POP (respectively) codes for CS, DS, ES, SS
  *                 (POP is never used for CS) depending on operand 0
  * \346,\347     - the second byte of PUSH/POP codes for FS, GS, depending
  *                 on operand 0
- * \360		 - no SSE prefix (== \364\331)
+ * \360          - no SSE prefix (== \364\331)
  * \361          - 66 SSE prefix (== \366\331)
  * \362          - F2 SSE prefix (== \364\332)
  * \363          - F3 SSE prefix (== \364\333)
@@ -144,10 +144,12 @@
  * \365          - address-size prefix (0x67) not permitted
  * \366          - operand-size prefix (0x66) used as opcode extension
  * \367          - address-size prefix (0x67) used as opcode extension
- * \370,\371,\372 - match only if operand 0 meets byte jump criteria.
- *		   370 is used for Jcc, 371 is used for JMP.
- * \373		 - assemble 0x03 if bits==16, 0x05 if bits==32;
- *		   used for conditional jump over longer jump
+ * \370,\371     - match only if operand 0 meets byte jump criteria.
+ *                 370 is used for Jcc, 371 is used for JMP.
+ * \373          - assemble 0x03 if bits==16, 0x05 if bits==32;
+ *                 used for conditional jump over longer jump
+ * \374          - this instruction takes an XMM VSIB memory EA
+ * \375          - this instruction takes an YMM VSIB memory EA
  */
 
 #include "compiler.h"
@@ -172,41 +174,51 @@ enum match_result {
     MERR_OPSIZEMISMATCH,
     MERR_BADCPU,
     MERR_BADMODE,
+    MERR_BADHLE,
     /*
      * Matching success; the conditional ones first
      */
-    MOK_JUMP,			/* Matching OK but needs jmp_match() */
-    MOK_GOOD			/* Matching unconditionally OK */
+    MOK_JUMP,   /* Matching OK but needs jmp_match() */
+    MOK_GOOD    /* Matching unconditionally OK */
 };
 
 typedef struct {
-    int sib_present;                 /* is a SIB byte necessary? */
-    int bytes;                       /* # of bytes of offset needed */
-    int size;                        /* lazy - this is sib+bytes+1 */
-    uint8_t modrm, sib, rex, rip;    /* the bytes themselves */
+    enum ea_type type;            /* what kind of EA is this? */
+    int sib_present;              /* is a SIB byte necessary? */
+    int bytes;                    /* # of bytes of offset needed */
+    int size;                     /* lazy - this is sib+bytes+1 */
+    uint8_t modrm, sib, rex, rip; /* the bytes themselves */
 } ea;
+
+#define GEN_SIB(scale, index, base)                 \
+        (((scale) << 6) | ((index) << 3) | ((base)))
+
+#define GEN_MODRM(mod, reg, rm)                     \
+        (((mod) << 6) | (((reg) & 7) << 3) | ((rm) & 7))
 
 static uint32_t cpu;            /* cpu level received from nasm.c */
 static efunc errfunc;
 static struct ofmt *outfmt;
 static ListGen *list;
 
-static int64_t calcsize(int32_t, int64_t, int, insn *, const uint8_t *);
+static int64_t calcsize(int32_t, int64_t, int, insn *,
+                        const struct itemplate *);
 static void gencode(int32_t segment, int64_t offset, int bits,
                     insn * ins, const struct itemplate *temp,
-		    int64_t insn_end);
+                    int64_t insn_end);
 static enum match_result find_match(const struct itemplate **tempp,
-				    insn *instruction,
-				    int32_t segment, int64_t offset, int bits);
+                                    insn *instruction,
+                                    int32_t segment, int64_t offset, int bits);
 static enum match_result matches(const struct itemplate *, insn *, int bits);
 static opflags_t regflag(const operand *);
 static int32_t regval(const operand *);
 static int rexflags(int, opflags_t, int);
 static int op_rexflags(const operand *, int);
-static ea *process_ea(operand *, ea *, int, int, int, opflags_t);
 static void add_asp(insn *, int);
 
-static int has_prefix(insn * ins, enum prefix_pos pos, enum prefixes prefix)
+static enum ea_type process_ea(operand *, ea *, int, int, int, opflags_t);
+
+static int has_prefix(insn * ins, enum prefix_pos pos, int prefix)
 {
     return ins->prefixes[pos] == prefix;
 }
@@ -214,29 +226,29 @@ static int has_prefix(insn * ins, enum prefix_pos pos, enum prefixes prefix)
 static void assert_no_prefix(insn * ins, enum prefix_pos pos)
 {
     if (ins->prefixes[pos])
-	errfunc(ERR_NONFATAL, "invalid %s prefix",
-		prefix_name(ins->prefixes[pos]));
+        errfunc(ERR_NONFATAL, "invalid %s prefix",
+                prefix_name(ins->prefixes[pos]));
 }
 
 static const char *size_name(int size)
 {
     switch (size) {
     case 1:
-	return "byte";
+        return "byte";
     case 2:
-	return "word";
+        return "word";
     case 4:
-	return "dword";
+        return "dword";
     case 8:
-	return "qword";
+        return "qword";
     case 10:
-	return "tword";
+        return "tword";
     case 16:
-	return "oword";
+        return "oword";
     case 32:
-	return "yword";
+        return "yword";
     default:
-	return "???";
+        return "???";
     }
 }
 
@@ -254,7 +266,7 @@ static void warn_overflow_const(int64_t data, int size)
 
 static void warn_overflow_opd(const struct operand *o, int size)
 {
-    if (size < 8 && o->wrt == NO_SEG && o->segment == NO_SEG) {
+    if (o->wrt == NO_SEG && o->segment == NO_SEG) {
         if (overflow_general(o->offset, size))
             warn_overflow(ERR_PASS2, size);
     }
@@ -267,27 +279,27 @@ static void warn_overflow_opd(const struct operand *o, int size)
  */
 static void out(int64_t offset, int32_t segto, const void *data,
                 enum out_type type, uint64_t size,
-		int32_t segment, int32_t wrt)
+                int32_t segment, int32_t wrt)
 {
     static int32_t lineno = 0;     /* static!!! */
     static char *lnfname = NULL;
     uint8_t p[8];
 
     if (type == OUT_ADDRESS && segment == NO_SEG && wrt == NO_SEG) {
-	/*
-	 * This is a non-relocated address, and we're going to
-	 * convert it into RAWDATA format.
-	 */
-	uint8_t *q = p;
+        /*
+         * This is a non-relocated address, and we're going to
+         * convert it into RAWDATA format.
+         */
+        uint8_t *q = p;
 
-	if (size > 8) {
-	    errfunc(ERR_PANIC, "OUT_ADDRESS with size > 8");
-	    return;
-	}
+        if (size > 8) {
+            errfunc(ERR_PANIC, "OUT_ADDRESS with size > 8");
+            return;
+        }
 
-	WRITEADDR(q, *(int64_t *)data, size);
-	data = p;
-	type = OUT_RAWDATA;
+        WRITEADDR(q, *(int64_t *)data, size);
+        data = p;
+        type = OUT_RAWDATA;
     }
 
     list->output(offset, data, type, size);
@@ -301,27 +313,27 @@ static void out(int64_t offset, int32_t segto, const void *data,
      * if it did. thus, these variables must be static
      */
 
-    if (src_get(&lineno, &lnfname)) {
+    if (src_get(&lineno, &lnfname))
         outfmt->current_dfmt->linenum(lnfname, lineno, segto);
-    }
 
     outfmt->output(segto, data, type, size, segment, wrt);
 }
 
 static bool jmp_match(int32_t segment, int64_t offset, int bits,
-                     insn * ins, const uint8_t *code)
+                      insn * ins, const struct itemplate *temp)
 {
     int64_t isize;
+    const uint8_t *code = temp->code;
     uint8_t c = code[0];
 
-    if ((c != 0370 && c != 0371) || (ins->oprs[0].type & STRICT))
+    if (((c & ~1) != 0370) || (ins->oprs[0].type & STRICT))
         return false;
     if (!optimizing)
-	return false;
+        return false;
     if (optimizing < 0 && c == 0371)
-	return false;
+        return false;
 
-    isize = calcsize(segment, offset, bits, ins, code);
+    isize = calcsize(segment, offset, bits, ins, temp);
 
     if (ins->oprs[0].opflags & OPFLAG_UNKNOWN)
         /* Be optimistic in pass 1 */
@@ -335,8 +347,8 @@ static bool jmp_match(int32_t segment, int64_t offset, int bits,
 }
 
 int64_t assemble(int32_t segment, int64_t offset, int bits, uint32_t cp,
-		 insn * instruction, struct ofmt *output, efunc error,
-		 ListGen * listgen)
+                 insn * instruction, struct ofmt *output, efunc error,
+                 ListGen * listgen)
 {
     const struct itemplate *temp;
     int j;
@@ -365,25 +377,17 @@ int64_t assemble(int32_t segment, int64_t offset, int bits, uint32_t cp,
         while (t--) {           /* repeat TIMES times */
             list_for_each(e, instruction->eops) {
                 if (e->type == EOT_DB_NUMBER) {
-                    if (wsize == 1) {
-                        if (e->segment != NO_SEG)
-                            errfunc(ERR_NONFATAL,
-                                    "one-byte relocation attempted");
-                        else {
-                            uint8_t out_byte = e->offset;
-                            out(offset, segment, &out_byte,
-                                OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-                        }
-                    } else if (wsize > 8) {
+                    if (wsize > 8) {
                         errfunc(ERR_NONFATAL,
-				"integer supplied to a DT, DO or DY"
+                                "integer supplied to a DT, DO or DY"
                                 " instruction");
-                    } else
+                    } else {
                         out(offset, segment, &e->offset,
                             OUT_ADDRESS, wsize, e->segment, e->wrt);
-                    offset += wsize;
+                        offset += wsize;
+                    }
                 } else if (e->type == EOT_DB_STRING ||
-			   e->type == EOT_DB_STRING_FREE) {
+                           e->type == EOT_DB_STRING_FREE) {
                     int align;
 
                     out(offset, segment, e->stringval,
@@ -416,18 +420,18 @@ int64_t assemble(int32_t segment, int64_t offset, int bits, uint32_t cp,
         const char *fname = instruction->eops->stringval;
         FILE *fp;
 
-	fp = fopen(fname, "rb");
-	if (!fp) {
+        fp = fopen(fname, "rb");
+        if (!fp) {
             error(ERR_NONFATAL, "`incbin': unable to open file `%s'",
                   fname);
-	} else if (fseek(fp, 0L, SEEK_END) < 0) {
+        } else if (fseek(fp, 0L, SEEK_END) < 0) {
             error(ERR_NONFATAL, "`incbin': unable to seek on file `%s'",
                   fname);
-	} else {
+        } else {
             static char buf[4096];
             size_t t = instruction->times;
             size_t base = 0;
-	    size_t len;
+            size_t len;
 
             len = ftell(fp);
             if (instruction->eops->next) {
@@ -450,7 +454,7 @@ int64_t assemble(int32_t segment, int64_t offset, int bits, uint32_t cp,
                 l = len;
                 while (l > 0) {
                     int32_t m;
-		    m = fread(buf, 1, l > sizeof(buf) ? sizeof(buf) : l, fp);
+                    m = fread(buf, 1, l > sizeof(buf) ? sizeof(buf) : l, fp);
                     if (!m) {
                         /*
                          * This shouldn't happen unless the file
@@ -490,161 +494,162 @@ int64_t assemble(int32_t segment, int64_t offset, int bits, uint32_t cp,
     m = find_match(&temp, instruction, segment, offset, bits);
 
     if (m == MOK_GOOD) {
-	/* Matches! */
-	int64_t insn_size = calcsize(segment, offset, bits,
-				     instruction, temp->code);
-	itimes = instruction->times;
-	if (insn_size < 0)  /* shouldn't be, on pass two */
-	    error(ERR_PANIC, "errors made it through from pass one");
-	else
-	    while (itimes--) {
-		for (j = 0; j < MAXPREFIX; j++) {
-		    uint8_t c = 0;
-		    switch (instruction->prefixes[j]) {
-		    case P_WAIT:
-			c = 0x9B;
-			break;
-		    case P_LOCK:
-			c = 0xF0;
-			break;
-		    case P_REPNE:
-		    case P_REPNZ:
-			c = 0xF2;
-			break;
-		    case P_REPE:
-		    case P_REPZ:
-		    case P_REP:
-			c = 0xF3;
-			break;
-		    case R_CS:
-			if (bits == 64) {
-			    error(ERR_WARNING | ERR_PASS2,
-				  "cs segment base generated, but will be ignored in 64-bit mode");
-			}
-			c = 0x2E;
-			break;
-		    case R_DS:
-			if (bits == 64) {
-			    error(ERR_WARNING | ERR_PASS2,
-				  "ds segment base generated, but will be ignored in 64-bit mode");
-			}
-			c = 0x3E;
-			break;
-		    case R_ES:
-			if (bits == 64) {
-			    error(ERR_WARNING | ERR_PASS2,
-				  "es segment base generated, but will be ignored in 64-bit mode");
-			}
-			c = 0x26;
-			break;
-		    case R_FS:
-			c = 0x64;
-			break;
-		    case R_GS:
-			c = 0x65;
-			break;
-		    case R_SS:
-			if (bits == 64) {
-			    error(ERR_WARNING | ERR_PASS2,
-				  "ss segment base generated, but will be ignored in 64-bit mode");
-			}
-			c = 0x36;
-			break;
-		    case R_SEGR6:
-		    case R_SEGR7:
-			error(ERR_NONFATAL,
-			      "segr6 and segr7 cannot be used as prefixes");
-			break;
-		    case P_A16:
-			if (bits == 64) {
-			    error(ERR_NONFATAL,
-				  "16-bit addressing is not supported "
-				  "in 64-bit mode");
-			} else if (bits != 16)
-			    c = 0x67;
-			break;
-		    case P_A32:
-			if (bits != 32)
-			    c = 0x67;
-			break;
-		    case P_A64:
-			if (bits != 64) {
-			    error(ERR_NONFATAL,
-				  "64-bit addressing is only supported "
-				  "in 64-bit mode");
-			}
-			break;
-		    case P_ASP:
-			c = 0x67;
-			break;
-		    case P_O16:
-			if (bits != 16)
-			    c = 0x66;
-			break;
-		    case P_O32:
-			if (bits == 16)
-			    c = 0x66;
-			break;
-		    case P_O64:
-			/* REX.W */
-			break;
-		    case P_OSP:
-			c = 0x66;
-			break;
-		    case P_none:
-			break;
-		    default:
-			error(ERR_PANIC, "invalid instruction prefix");
-		    }
-		    if (c != 0) {
-			out(offset, segment, &c, OUT_RAWDATA, 1,
-			    NO_SEG, NO_SEG);
-			offset++;
-		    }
-		}
-		insn_end = offset + insn_size;
-		gencode(segment, offset, bits, instruction,
-			temp, insn_end);
-		offset += insn_size;
-		if (itimes > 0 && itimes == instruction->times - 1) {
-		    /*
-		     * Dummy call to list->output to give the offset to the
-		     * listing module.
-		     */
-		    list->output(offset, NULL, OUT_RAWDATA, 0);
-		    list->uplevel(LIST_TIMES);
-		}
-	    }
-	if (instruction->times > 1)
-	    list->downlevel(LIST_TIMES);
-	return offset - start;
+        /* Matches! */
+        int64_t insn_size = calcsize(segment, offset, bits, instruction, temp);
+        itimes = instruction->times;
+        if (insn_size < 0)  /* shouldn't be, on pass two */
+            error(ERR_PANIC, "errors made it through from pass one");
+        else
+            while (itimes--) {
+                for (j = 0; j < MAXPREFIX; j++) {
+                    uint8_t c = 0;
+                    switch (instruction->prefixes[j]) {
+                    case P_WAIT:
+                        c = 0x9B;
+                        break;
+                    case P_LOCK:
+                        c = 0xF0;
+                        break;
+                    case P_REPNE:
+                    case P_REPNZ:
+                    case P_XACQUIRE:
+                        c = 0xF2;
+                        break;
+                    case P_REPE:
+                    case P_REPZ:
+                    case P_REP:
+                    case P_XRELEASE:
+                        c = 0xF3;
+                        break;
+                    case R_CS:
+                        if (bits == 64) {
+                            error(ERR_WARNING | ERR_PASS2,
+                                  "cs segment base generated, but will be ignored in 64-bit mode");
+                        }
+                        c = 0x2E;
+                        break;
+                    case R_DS:
+                        if (bits == 64) {
+                            error(ERR_WARNING | ERR_PASS2,
+                                  "ds segment base generated, but will be ignored in 64-bit mode");
+                        }
+                        c = 0x3E;
+                        break;
+                    case R_ES:
+                        if (bits == 64) {
+                            error(ERR_WARNING | ERR_PASS2,
+                                  "es segment base generated, but will be ignored in 64-bit mode");
+                        }
+                        c = 0x26;
+                        break;
+                    case R_FS:
+                        c = 0x64;
+                        break;
+                    case R_GS:
+                        c = 0x65;
+                        break;
+                    case R_SS:
+                        if (bits == 64) {
+                            error(ERR_WARNING | ERR_PASS2,
+                                  "ss segment base generated, but will be ignored in 64-bit mode");
+                        }
+                        c = 0x36;
+                        break;
+                    case R_SEGR6:
+                    case R_SEGR7:
+                        error(ERR_NONFATAL,
+                              "segr6 and segr7 cannot be used as prefixes");
+                        break;
+                    case P_A16:
+                        if (bits == 64) {
+                            error(ERR_NONFATAL,
+                                  "16-bit addressing is not supported "
+                                  "in 64-bit mode");
+                        } else if (bits != 16)
+                            c = 0x67;
+                        break;
+                    case P_A32:
+                        if (bits != 32)
+                            c = 0x67;
+                        break;
+                    case P_A64:
+                        if (bits != 64) {
+                            error(ERR_NONFATAL,
+                                  "64-bit addressing is only supported "
+                                  "in 64-bit mode");
+                        }
+                        break;
+                    case P_ASP:
+                        c = 0x67;
+                        break;
+                    case P_O16:
+                        if (bits != 16)
+                            c = 0x66;
+                        break;
+                    case P_O32:
+                        if (bits == 16)
+                            c = 0x66;
+                        break;
+                    case P_O64:
+                        /* REX.W */
+                        break;
+                    case P_OSP:
+                        c = 0x66;
+                        break;
+                    case P_none:
+                        break;
+                    default:
+                        error(ERR_PANIC, "invalid instruction prefix");
+                    }
+                    if (c != 0) {
+                        out(offset, segment, &c, OUT_RAWDATA, 1,
+                            NO_SEG, NO_SEG);
+                        offset++;
+                    }
+                }
+                insn_end = offset + insn_size;
+                gencode(segment, offset, bits, instruction,
+                        temp, insn_end);
+                offset += insn_size;
+                if (itimes > 0 && itimes == instruction->times - 1) {
+                    /*
+                     * Dummy call to list->output to give the offset to the
+                     * listing module.
+                     */
+                    list->output(offset, NULL, OUT_RAWDATA, 0);
+                    list->uplevel(LIST_TIMES);
+                }
+            }
+        if (instruction->times > 1)
+            list->downlevel(LIST_TIMES);
+        return offset - start;
     } else {
-	/* No match */
-	switch (m) {
-	case MERR_OPSIZEMISSING:
-	    error(ERR_NONFATAL, "operation size not specified");
-	    break;
-	case MERR_OPSIZEMISMATCH:
+        /* No match */
+        switch (m) {
+        case MERR_OPSIZEMISSING:
+            error(ERR_NONFATAL, "operation size not specified");
+            break;
+        case MERR_OPSIZEMISMATCH:
             error(ERR_NONFATAL, "mismatch in operand sizes");
-	    break;
-	case MERR_BADCPU:
+            break;
+        case MERR_BADCPU:
             error(ERR_NONFATAL, "no instruction for this cpu level");
-	    break;
-	case MERR_BADMODE:
+            break;
+        case MERR_BADMODE:
             error(ERR_NONFATAL, "instruction not supported in %d-bit mode",
-		  bits);
-	    break;
-	default:
+                  bits);
+            break;
+        default:
             error(ERR_NONFATAL,
                   "invalid combination of opcode and operands");
-	    break;
-	}
+            break;
+        }
     }
     return 0;
 }
 
 int64_t insn_size(int32_t segment, int64_t offset, int bits, uint32_t cp,
-		  insn * instruction, efunc error)
+                  insn * instruction, efunc error)
 {
     const struct itemplate *temp;
     enum match_result m;
@@ -657,8 +662,8 @@ int64_t insn_size(int32_t segment, int64_t offset, int bits, uint32_t cp,
 
     if (instruction->opcode == I_DB || instruction->opcode == I_DW ||
         instruction->opcode == I_DD || instruction->opcode == I_DQ ||
-	instruction->opcode == I_DT || instruction->opcode == I_DO ||
-	instruction->opcode == I_DY) {
+        instruction->opcode == I_DT || instruction->opcode == I_DO ||
+        instruction->opcode == I_DY) {
         extop *e;
         int32_t isize, osize, wsize;
 
@@ -685,13 +690,13 @@ int64_t insn_size(int32_t segment, int64_t offset, int bits, uint32_t cp,
     }
 
     if (instruction->opcode == I_INCBIN) {
-	const char *fname = instruction->eops->stringval;
+        const char *fname = instruction->eops->stringval;
         FILE *fp;
         int64_t val = 0;
         size_t len;
 
-	fp = fopen(fname, "rb");
-	if (!fp)
+        fp = fopen(fname, "rb");
+        if (!fp)
             error(ERR_NONFATAL, "`incbin': unable to open file `%s'",
                   fname);
         else if (fseek(fp, 0L, SEEK_END) < 0)
@@ -718,52 +723,51 @@ int64_t insn_size(int32_t segment, int64_t offset, int bits, uint32_t cp,
 
     m = find_match(&temp, instruction, segment, offset, bits);
     if (m == MOK_GOOD) {
-	/* we've matched an instruction. */
-	int64_t isize;
-	const uint8_t *codes = temp->code;
-	int j;
-	
-	isize = calcsize(segment, offset, bits, instruction, codes);
-	if (isize < 0)
-	    return -1;
-	for (j = 0; j < MAXPREFIX; j++) {
-	    switch (instruction->prefixes[j]) {
-	    case P_A16:
-		if (bits != 16)
-		    isize++;
-		break;
-	    case P_A32:
-		if (bits != 32)
-		    isize++;
-		break;
-	    case P_O16:
-		if (bits != 16)
-		    isize++;
-		break;
-	    case P_O32:
-		if (bits == 16)
-		    isize++;
-		break;
-	    case P_A64:
-	    case P_O64:
-	    case P_none:
-		break;
-	    default:
-		isize++;
-		break;
-	    }
-	}
-	return isize * instruction->times;
+        /* we've matched an instruction. */
+        int64_t isize;
+        int j;
+
+        isize = calcsize(segment, offset, bits, instruction, temp);
+        if (isize < 0)
+            return -1;
+        for (j = 0; j < MAXPREFIX; j++) {
+            switch (instruction->prefixes[j]) {
+            case P_A16:
+                if (bits != 16)
+                    isize++;
+                break;
+            case P_A32:
+                if (bits != 32)
+                    isize++;
+                break;
+            case P_O16:
+                if (bits != 16)
+                    isize++;
+                break;
+            case P_O32:
+                if (bits == 16)
+                    isize++;
+                break;
+            case P_A64:
+            case P_O64:
+            case P_none:
+                break;
+            default:
+                isize++;
+                break;
+            }
+        }
+        return isize * instruction->times;
     } else {
-	return -1;                  /* didn't match any instruction */
+        return -1;                  /* didn't match any instruction */
     }
 }
 
 static bool possible_sbyte(operand *o)
 {
     return o->wrt == NO_SEG && o->segment == NO_SEG &&
-	!(o->opflags & OPFLAG_UNKNOWN) &&
-	optimizing >= 0 && !(o->type & STRICT);
+        !(o->opflags & OPFLAG_UNKNOWN) &&
+        optimizing >= 0 && !(o->type & STRICT);
 }
 
 /* check that opn[op]  is a signed byte of size 16 or 32 */
@@ -772,7 +776,7 @@ static bool is_sbyte16(operand *o)
     int16_t v;
 
     if (!possible_sbyte(o))
-	return false;
+        return false;
 
     v = o->offset;
     return v >= -128 && v <= 127;
@@ -783,184 +787,222 @@ static bool is_sbyte32(operand *o)
     int32_t v;
 
     if (!possible_sbyte(o))
-	return false;
+        return false;
 
     v = o->offset;
     return v >= -128 && v <= 127;
+}
+
+static void bad_hle_warn(const insn * ins, uint8_t hleok)
+{
+    enum prefixes rep_pfx = ins->prefixes[PPS_REP];
+    enum whatwarn { w_none, w_lock, w_inval } ww;
+    static const enum whatwarn warn[2][4] =
+    {
+        { w_inval, w_inval, w_none, w_lock }, /* XACQUIRE */
+        { w_inval, w_none,  w_none, w_lock }, /* XRELEASE */
+    };
+    unsigned int n;
+
+    n = (unsigned int)rep_pfx - P_XACQUIRE;
+    if (n > 1)
+        return;                 /* Not XACQUIRE/XRELEASE */
+
+    ww = warn[n][hleok];
+    if (!is_class(MEMORY, ins->oprs[0].type))
+        ww = w_inval;           /* HLE requires operand 0 to be memory */
+
+    switch (ww) {
+    case w_none:
+        break;
+
+    case w_lock:
+        if (ins->prefixes[PPS_LOCK] != P_LOCK) {
+            errfunc(ERR_WARNING | ERR_WARN_HLE | ERR_PASS2,
+                    "%s with this instruction requires lock",
+                    prefix_name(rep_pfx));
+        }
+        break;
+
+    case w_inval:
+        errfunc(ERR_WARNING | ERR_WARN_HLE | ERR_PASS2,
+                "%s invalid with this instruction",
+                prefix_name(rep_pfx));
+        break;
+    }
 }
 
 /* Common construct */
 #define case4(x) case (x): case (x)+1: case (x)+2: case (x)+3
 
 static int64_t calcsize(int32_t segment, int64_t offset, int bits,
-			insn * ins, const uint8_t *codes)
+                        insn * ins, const struct itemplate *temp)
 {
+    const uint8_t *codes = temp->code;
     int64_t length = 0;
     uint8_t c;
     int rex_mask = ~0;
     int op1, op2;
     struct operand *opx;
     uint8_t opex = 0;
+    enum ea_type eat;
+    uint8_t hleok = 0;
+    bool lockcheck = true;
 
     ins->rex = 0;               /* Ensure REX is reset */
+    eat = EA_SCALAR;            /* Expect a scalar EA */
 
     if (ins->prefixes[PPS_OSIZE] == P_O64)
-	ins->rex |= REX_W;
+        ins->rex |= REX_W;
 
     (void)segment;              /* Don't warn that this parameter is unused */
     (void)offset;               /* Don't warn that this parameter is unused */
 
     while (*codes) {
-	c = *codes++;
-	op1 = (c & 3) + ((opex & 1) << 2);
-	op2 = ((c >> 3) & 3) + ((opex & 2) << 1);
-	opx = &ins->oprs[op1];
-	opex = 0;		/* For the next iteration */
+        c = *codes++;
+        op1 = (c & 3) + ((opex & 1) << 2);
+        op2 = ((c >> 3) & 3) + ((opex & 2) << 1);
+        opx = &ins->oprs[op1];
+        opex = 0;               /* For the next iteration */
 
         switch (c) {
         case 01:
         case 02:
         case 03:
-	case 04:
+        case 04:
             codes += c, length += c;
             break;
 
-	case 05:
-	case 06:
-	case 07:
-	    opex = c;
-	    break;
+        case 05:
+        case 06:
+        case 07:
+            opex = c;
+            break;
 
-	case4(010):
-	    ins->rex |=
-		op_rexflags(opx, REX_B|REX_H|REX_P|REX_W);
+        case4(010):
+            ins->rex |=
+                op_rexflags(opx, REX_B|REX_H|REX_P|REX_W);
             codes++, length++;
             break;
 
-	case4(014):
-	case4(020):
-	case4(024):
+        case4(014):
+        case4(020):
+        case4(024):
             length++;
             break;
 
-	case4(030):
+        case4(030):
             length += 2;
             break;
 
-	case4(034):
+        case4(034):
             if (opx->type & (BITS16 | BITS32 | BITS64))
                 length += (opx->type & BITS16) ? 2 : 4;
             else
                 length += (bits == 16) ? 2 : 4;
             break;
 
-	case4(040):
+        case4(040):
             length += 4;
             break;
 
-	case4(044):
+        case4(044):
             length += ins->addr_size >> 3;
             break;
 
-	case4(050):
+        case4(050):
             length++;
             break;
 
-	case4(054):
+        case4(054):
             length += 8; /* MOV reg64/imm */
             break;
 
-	case4(060):
+        case4(060):
             length += 2;
             break;
 
-	case4(064):
+        case4(064):
             if (opx->type & (BITS16 | BITS32 | BITS64))
                 length += (opx->type & BITS16) ? 2 : 4;
             else
                 length += (bits == 16) ? 2 : 4;
             break;
 
-	case4(070):
+        case4(070):
             length += 4;
             break;
 
-	case4(074):
+        case4(074):
             length += 2;
             break;
 
-	case4(0140):
+        case4(0140):
             length += is_sbyte16(opx) ? 1 : 2;
             break;
 
-	case4(0144):
+        case4(0144):
             codes++;
             length++;
             break;
 
-	case4(0150):
+        case4(0150):
             length += is_sbyte32(opx) ? 1 : 4;
             break;
 
-	case4(0154):
+        case4(0154):
             codes++;
             length++;
             break;
 
-	case4(0160):
-	    length++;
-	    ins->rex |= REX_D;
-	    ins->drexdst = regval(opx);
-	    break;
-
-	case4(0164):
-	    length++;
-	    ins->rex |= REX_D|REX_OC;
-	    ins->drexdst = regval(opx);
-	    break;
-
-	case 0171:
-	    break;
-
-	case 0172:
-	case 0173:
-	case 0174:
-	    codes++;
-	    length++;
-	    break;
-
-	case4(0250):
-            length += is_sbyte32(opx) ? 1 : 4;
-            break;
-
-	case4(0254):
-	    length += 4;
-	    break;
-
-	case4(0260):
-	    ins->rex |= REX_V;
-	    ins->drexdst = regval(opx);
-	    ins->vex_cm = *codes++;
-	    ins->vex_wlp = *codes++;
-	    break;
-
-	case 0270:
-	    ins->rex |= REX_V;
-	    ins->drexdst = 0;
-	    ins->vex_cm = *codes++;
-	    ins->vex_wlp = *codes++;
-	    break;
-
-	case4(0274):
+        case 0172:
+        case 0173:
+            codes++;
             length++;
             break;
 
-	case4(0300):
+        case4(0174):
+            length++;
+            break;
+
+        case4(0250):
+            length += is_sbyte32(opx) ? 1 : 4;
+            break;
+
+        case4(0254):
+            length += 4;
+            break;
+
+        case4(0260):
+            ins->rex |= REX_V;
+            ins->vexreg = regval(opx);
+            ins->vex_cm = *codes++;
+            ins->vex_wlp = *codes++;
+            break;
+
+        case 0270:
+            ins->rex |= REX_V;
+            ins->vexreg = 0;
+            ins->vex_cm = *codes++;
+            ins->vex_wlp = *codes++;
+            break;
+
+        case 0271:
+        case 0272:
+        case 0273:
+            hleok = c & 3;
+            break;
+
+        case4(0274):
+            length++;
+            break;
+
+        case4(0300):
             break;
 
         case 0310:
-	    if (bits == 64)
-		return -1;
+            if (bits == 64)
+                return -1;
             length += (bits != 16) && !has_prefix(ins, PPS_ASIZE, P_A16);
             break;
 
@@ -972,21 +1014,37 @@ static int64_t calcsize(int32_t segment, int64_t offset, int bits,
             break;
 
         case 0313:
-	    if (bits != 64 || has_prefix(ins, PPS_ASIZE, P_A16) ||
-		has_prefix(ins, PPS_ASIZE, P_A32))
-		return -1;
+            if (bits != 64 || has_prefix(ins, PPS_ASIZE, P_A16) ||
+                has_prefix(ins, PPS_ASIZE, P_A32))
+                return -1;
             break;
 
-	case4(0314):
-	    break;
+        case4(0314):
+            break;
 
         case 0320:
-            length += (bits != 16);
+        {
+            enum prefixes pfx = ins->prefixes[PPS_OSIZE];
+            if (pfx == P_O16)
+                break;
+            if (pfx != P_none)
+                errfunc(ERR_WARNING | ERR_PASS2, "invalid operand size prefix");
+            else
+                ins->prefixes[PPS_OSIZE] = P_O16;
             break;
+        }
 
         case 0321:
-            length += (bits == 16);
+        {
+            enum prefixes pfx = ins->prefixes[PPS_OSIZE];
+            if (pfx == P_O32)
+                break;
+            if (pfx != P_none)
+                errfunc(ERR_WARNING | ERR_PASS2, "invalid operand size prefix");
+            else
+                ins->prefixes[PPS_OSIZE] = P_O32;
             break;
+        }
 
         case 0322:
             break;
@@ -996,12 +1054,12 @@ static int64_t calcsize(int32_t segment, int64_t offset, int bits,
             break;
 
         case 0324:
-	    ins->rex |= REX_W;
+            ins->rex |= REX_W;
             break;
 
-	case 0325:
-	    ins->rex |= REX_NH;
-	    break;
+        case 0325:
+            ins->rex |= REX_NH;
+            break;
 
         case 0330:
             codes++, length++;
@@ -1015,22 +1073,22 @@ static int64_t calcsize(int32_t segment, int64_t offset, int bits,
             length++;
             break;
 
-	case 0334:
-	    ins->rex |= REX_L;
-	    break;
+        case 0334:
+            ins->rex |= REX_L;
+            break;
 
         case 0335:
-	    break;
+            break;
 
-	case 0336:
-	    if (!ins->prefixes[PPS_LREP])
-		ins->prefixes[PPS_LREP] = P_REP;
-	    break;
+        case 0336:
+            if (!ins->prefixes[PPS_REP])
+                ins->prefixes[PPS_REP] = P_REP;
+            break;
 
-	case 0337:
-	    if (!ins->prefixes[PPS_LREP])
-		ins->prefixes[PPS_LREP] = P_REPNE;
-	    break;
+        case 0337:
+            if (!ins->prefixes[PPS_REP])
+                ins->prefixes[PPS_REP] = P_REPNE;
+            break;
 
         case 0340:
             if (ins->oprs[0].segment != NO_SEG)
@@ -1040,32 +1098,32 @@ static int64_t calcsize(int32_t segment, int64_t offset, int bits,
                 length += ins->oprs[0].offset;
             break;
 
-	case 0341:
-	    if (!ins->prefixes[PPS_WAIT])
-		ins->prefixes[PPS_WAIT] = P_WAIT;
-	    break;
+        case 0341:
+            if (!ins->prefixes[PPS_WAIT])
+                ins->prefixes[PPS_WAIT] = P_WAIT;
+            break;
 
-	case4(0344):
+        case4(0344):
             length++;
             break;
 
-	case 0360:
-	    break;
+        case 0360:
+            break;
 
-	case 0361:
-	case 0362:
-	case 0363:
-	    length++;
-	    break;
+        case 0361:
+        case 0362:
+        case 0363:
+            length++;
+            break;
 
-	case 0364:
-	case 0365:
-	    break;
+        case 0364:
+        case 0365:
+            break;
 
         case 0366:
         case 0367:
-	    length++;
-	    break;
+            length++;
+            break;
 
         case 0370:
         case 0371:
@@ -1076,136 +1134,142 @@ static int64_t calcsize(int32_t segment, int64_t offset, int bits,
             length++;
             break;
 
-	case4(0100):
-	case4(0110):
-	case4(0120):
-	case4(0130):
-	case4(0200):
-	case4(0204):
-	case4(0210):
-	case4(0214):
-	case4(0220):
-	case4(0224):
-	case4(0230):
-	case4(0234):
-	    {
+        case 0374:
+            eat = EA_XMMVSIB;
+            break;
+
+        case 0375:
+            eat = EA_YMMVSIB;
+            break;
+
+        case4(0100):
+        case4(0110):
+        case4(0120):
+        case4(0130):
+        case4(0200):
+        case4(0204):
+        case4(0210):
+        case4(0214):
+        case4(0220):
+        case4(0224):
+        case4(0230):
+        case4(0234):
+            {
                 ea ea_data;
                 int rfield;
-		opflags_t rflags;
-		struct operand *opy = &ins->oprs[op2];
+                opflags_t rflags;
+                struct operand *opy = &ins->oprs[op2];
 
                 ea_data.rex = 0;           /* Ensure ea.REX is initially 0 */
 
-		if (c <= 0177) {
-		    /* pick rfield from operand b (opx) */
-		    rflags = regflag(opx);
-		    rfield = nasm_regvals[opx->basereg];
-		} else {
-		    rflags = 0;
-		    rfield = c & 7;
-		}
-                if (!process_ea(opy, &ea_data, bits,
-				ins->addr_size, rfield, rflags)) {
+                if (c <= 0177) {
+                    /* pick rfield from operand b (opx) */
+                    rflags = regflag(opx);
+                    rfield = nasm_regvals[opx->basereg];
+                } else {
+                    rflags = 0;
+                    rfield = c & 7;
+                }
+                if (process_ea(opy, &ea_data, bits,ins->addr_size,
+                               rfield, rflags) != eat) {
                     errfunc(ERR_NONFATAL, "invalid effective address");
                     return -1;
                 } else {
-		    ins->rex |= ea_data.rex;
+                    ins->rex |= ea_data.rex;
                     length += ea_data.size;
                 }
-	    }
-	    break;
+            }
+            break;
 
-	default:
-	    errfunc(ERR_PANIC, "internal instruction table corrupt"
-		    ": instruction code \\%o (0x%02X) given", c, c);
-	    break;
-	}
+        default:
+            errfunc(ERR_PANIC, "internal instruction table corrupt"
+                    ": instruction code \\%o (0x%02X) given", c, c);
+            break;
+        }
     }
 
     ins->rex &= rex_mask;
 
     if (ins->rex & REX_NH) {
-	if (ins->rex & REX_H) {
-	    errfunc(ERR_NONFATAL, "instruction cannot use high registers");
-	    return -1;
-	}
-	ins->rex &= ~REX_P;	/* Don't force REX prefix due to high reg */
+        if (ins->rex & REX_H) {
+            errfunc(ERR_NONFATAL, "instruction cannot use high registers");
+            return -1;
+        }
+        ins->rex &= ~REX_P;        /* Don't force REX prefix due to high reg */
     }
 
     if (ins->rex & REX_V) {
-	int bad32 = REX_R|REX_W|REX_X|REX_B;
+        int bad32 = REX_R|REX_W|REX_X|REX_B;
 
-	if (ins->rex & REX_H) {
-	    errfunc(ERR_NONFATAL, "cannot use high register in vex instruction");
-	    return -1;
-	}
-	switch (ins->vex_wlp & 030) {
-	case 000:
-	case 020:
-	    ins->rex &= ~REX_W;
-	    break;
-	case 010:
-	    ins->rex |= REX_W;
-	    bad32 &= ~REX_W;
-	    break;
-	case 030:
-	    /* Follow REX_W */
-	    break;
-	}
+        if (ins->rex & REX_H) {
+            errfunc(ERR_NONFATAL, "cannot use high register in vex instruction");
+            return -1;
+        }
+        switch (ins->vex_wlp & 060) {
+        case 000:
+        case 040:
+            ins->rex &= ~REX_W;
+            break;
+        case 020:
+            ins->rex |= REX_W;
+            bad32 &= ~REX_W;
+            break;
+        case 060:
+            /* Follow REX_W */
+            break;
+        }
 
-	if (bits != 64 && ((ins->rex & bad32) || ins->drexdst > 7)) {
-	    errfunc(ERR_NONFATAL, "invalid operands in non-64-bit mode");
-	    return -1;
-	}
-	if (ins->vex_cm != 1 || (ins->rex & (REX_W|REX_R|REX_B)))
-	    length += 3;
-	else
-	    length += 2;
-    } else if (ins->rex & REX_D) {
-	if (ins->rex & REX_H) {
-	    errfunc(ERR_NONFATAL, "cannot use high register in drex instruction");
-	    return -1;
-	}
-	if (bits != 64 && ((ins->rex & (REX_R|REX_W|REX_X|REX_B)) ||
-			   ins->drexdst > 7)) {
-	    errfunc(ERR_NONFATAL, "invalid operands in non-64-bit mode");
-	    return -1;
-	}
-	length++;
+        if (bits != 64 && ((ins->rex & bad32) || ins->vexreg > 7)) {
+            errfunc(ERR_NONFATAL, "invalid operands in non-64-bit mode");
+            return -1;
+        }
+        if (ins->vex_cm != 1 || (ins->rex & (REX_W|REX_X|REX_B)))
+            length += 3;
+        else
+            length += 2;
     } else if (ins->rex & REX_REAL) {
-	if (ins->rex & REX_H) {
-	    errfunc(ERR_NONFATAL, "cannot use high register in rex instruction");
-	    return -1;
-	} else if (bits == 64) {
-	    length++;
-	} else if ((ins->rex & REX_L) &&
-		   !(ins->rex & (REX_P|REX_W|REX_X|REX_B)) &&
-		   cpu >= IF_X86_64) {
-	    /* LOCK-as-REX.R */
-	    assert_no_prefix(ins, PPS_LREP);
-	    length++;
-	} else {
-	    errfunc(ERR_NONFATAL, "invalid operands in non-64-bit mode");
-	    return -1;
-	}
+        if (ins->rex & REX_H) {
+            errfunc(ERR_NONFATAL, "cannot use high register in rex instruction");
+            return -1;
+        } else if (bits == 64) {
+            length++;
+        } else if ((ins->rex & REX_L) &&
+                   !(ins->rex & (REX_P|REX_W|REX_X|REX_B)) &&
+                   cpu >= IF_X86_64) {
+            /* LOCK-as-REX.R */
+            assert_no_prefix(ins, PPS_LOCK);
+            lockcheck = false;  /* Already errored, no need for warning */
+            length++;
+        } else {
+            errfunc(ERR_NONFATAL, "invalid operands in non-64-bit mode");
+            return -1;
+        }
     }
+
+    if (has_prefix(ins, PPS_LOCK, P_LOCK) && lockcheck &&
+        (!(temp->flags & IF_LOCK) || !is_class(MEMORY, ins->oprs[0].type))) {
+        errfunc(ERR_WARNING | ERR_WARN_LOCK | ERR_PASS2 ,
+                "instruction is not lockable");
+    }
+
+    bad_hle_warn(ins, hleok);
 
     return length;
 }
 
-#define EMIT_REX()							\
-    if (!(ins->rex & (REX_D|REX_V)) && (ins->rex & REX_REAL) && (bits == 64)) { \
-	ins->rex = (ins->rex & REX_REAL)|REX_P;				\
-	out(offset, segment, &ins->rex, OUT_RAWDATA, 1, NO_SEG, NO_SEG); \
-	ins->rex = 0;							\
-	offset += 1; \
+#define EMIT_REX()                                                              \
+    if (!(ins->rex & REX_V) && (ins->rex & REX_REAL) && (bits == 64)) { \
+        ins->rex = (ins->rex & REX_REAL)|REX_P;                                 \
+        out(offset, segment, &ins->rex, OUT_RAWDATA, 1, NO_SEG, NO_SEG);        \
+        ins->rex = 0;                                                           \
+        offset += 1;                                                            \
     }
 
 static void gencode(int32_t segment, int64_t offset, int bits,
                     insn * ins, const struct itemplate *temp,
-		    int64_t insn_end)
+                    int64_t insn_end)
 {
-    static char condval[] = {   /* conditional opcodes */
+    static const char condval[] = {   /* conditional opcodes */
         0x7, 0x3, 0x2, 0x6, 0x2, 0x4, 0xF, 0xD, 0xC, 0xE, 0x6, 0x2,
         0x3, 0x7, 0x3, 0x5, 0xE, 0xC, 0xD, 0xF, 0x1, 0xB, 0x9, 0x5,
         0x0, 0xA, 0xA, 0xB, 0x8, 0x4
@@ -1218,49 +1282,52 @@ static void gencode(int32_t segment, int64_t offset, int bits,
     struct operand *opx;
     const uint8_t *codes = temp->code;
     uint8_t opex = 0;
+    enum ea_type eat = EA_SCALAR;
 
     while (*codes) {
-	c = *codes++;
-	op1 = (c & 3) + ((opex & 1) << 2);
-	op2 = ((c >> 3) & 3) + ((opex & 2) << 1);
-	opx = &ins->oprs[op1];
-	opex = 0;		/* For the next iteration */
+        c = *codes++;
+        op1 = (c & 3) + ((opex & 1) << 2);
+        op2 = ((c >> 3) & 3) + ((opex & 2) << 1);
+        opx = &ins->oprs[op1];
+        opex = 0;                /* For the next iteration */
 
         switch (c) {
         case 01:
         case 02:
         case 03:
-	case 04:
-	    EMIT_REX();
+        case 04:
+            EMIT_REX();
             out(offset, segment, codes, OUT_RAWDATA, c, NO_SEG, NO_SEG);
             codes += c;
             offset += c;
             break;
 
-	case 05:
-	case 06:
-	case 07:
-	    opex = c;
-	    break;
+        case 05:
+        case 06:
+        case 07:
+            opex = c;
+            break;
 
-	case4(010):
-	    EMIT_REX();
+        case4(010):
+            EMIT_REX();
             bytes[0] = *codes++ + (regval(opx) & 7);
             out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
             offset += 1;
             break;
 
-	case4(014):
-	    /* The test for BITS8 and SBYTE here is intended to avoid
-	       warning on optimizer actions due to SBYTE, while still
-	       warn on explicit BYTE directives.  Also warn, obviously,
-	       if the optimizer isn't enabled. */
+        case4(014):
+            /*
+             * The test for BITS8 and SBYTE here is intended to avoid
+             * warning on optimizer actions due to SBYTE, while still
+             * warn on explicit BYTE directives.  Also warn, obviously,
+             * if the optimizer isn't enabled.
+             */
             if (((opx->type & BITS8) ||
-		 !(opx->type & temp->opd[op1] & BYTENESS)) &&
-		(opx->offset < -128 || opx->offset > 127)) {
+                 !(opx->type & temp->opd[op1] & BYTENESS)) &&
+                (opx->offset < -128 || opx->offset > 127)) {
                 errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			"signed byte value exceeds bounds");
-	    }
+                        "signed byte value exceeds bounds");
+            }
             if (opx->segment != NO_SEG) {
                 data = opx->offset;
                 out(offset, segment, &data, OUT_ADDRESS, 1,
@@ -1273,10 +1340,10 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 1;
             break;
 
-	case4(020):
+        case4(020):
             if (opx->offset < -256 || opx->offset > 255) {
                 errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			"byte value exceeds bounds");
+                        "byte value exceeds bounds");
             }
             if (opx->segment != NO_SEG) {
                 data = opx->offset;
@@ -1290,10 +1357,10 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 1;
             break;
 
-	case4(024):
+        case4(024):
             if (opx->offset < 0 || opx->offset > 255)
                 errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			"unsigned byte value exceeds bounds");
+                        "unsigned byte value exceeds bounds");
             if (opx->segment != NO_SEG) {
                 data = opx->offset;
                 out(offset, segment, &data, OUT_ADDRESS, 1,
@@ -1306,7 +1373,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 1;
             break;
 
-	case4(030):
+        case4(030):
             warn_overflow_opd(opx, 2);
             data = opx->offset;
             out(offset, segment, &data, OUT_ADDRESS, 2,
@@ -1314,7 +1381,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 2;
             break;
 
-	case4(034):
+        case4(034):
             if (opx->type & (BITS16 | BITS32))
                 size = (opx->type & BITS16) ? 2 : 4;
             else
@@ -1326,7 +1393,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += size;
             break;
 
-	case4(040):
+        case4(040):
             warn_overflow_opd(opx, 4);
             data = opx->offset;
             out(offset, segment, &data, OUT_ADDRESS, 4,
@@ -1334,7 +1401,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 4;
             break;
 
-	case4(044):
+        case4(044):
             data = opx->offset;
             size = ins->addr_size >> 3;
             warn_overflow_opd(opx, size);
@@ -1343,26 +1410,30 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += size;
             break;
 
-	case4(050):
-            if (opx->segment != segment)
-                errfunc(ERR_NONFATAL,
-                        "short relative jump outside segment");
-            data = opx->offset - insn_end;
-            if (data > 127 || data < -128)
-                errfunc(ERR_NONFATAL, "short jump is out of range");
-            bytes[0] = data;
-            out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
+        case4(050):
+            if (opx->segment != segment) {
+                data = opx->offset;
+                out(offset, segment, &data,
+                    OUT_REL1ADR, insn_end - offset,
+                    opx->segment, opx->wrt);
+            } else {
+                data = opx->offset - insn_end;
+                if (data > 127 || data < -128)
+                    errfunc(ERR_NONFATAL, "short jump is out of range");
+                out(offset, segment, &data,
+                    OUT_ADDRESS, 1, NO_SEG, NO_SEG);
+            }
             offset += 1;
             break;
 
-	case4(054):
+        case4(054):
             data = (int64_t)opx->offset;
             out(offset, segment, &data, OUT_ADDRESS, 8,
                 opx->segment, opx->wrt);
             offset += 8;
             break;
 
-	case4(060):
+        case4(060):
             if (opx->segment != segment) {
                 data = opx->offset;
                 out(offset, segment, &data,
@@ -1376,7 +1447,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 2;
             break;
 
-	case4(064):
+        case4(064):
             if (opx->type & (BITS16 | BITS32 | BITS64))
                 size = (opx->type & BITS16) ? 2 : 4;
             else
@@ -1384,8 +1455,8 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             if (opx->segment != segment) {
                 data = opx->offset;
                 out(offset, segment, &data,
-		    size == 2 ? OUT_REL2ADR : OUT_REL4ADR,
-		    insn_end - offset, opx->segment, opx->wrt);
+                    size == 2 ? OUT_REL2ADR : OUT_REL4ADR,
+                    insn_end - offset, opx->segment, opx->wrt);
             } else {
                 data = opx->offset - insn_end;
                 out(offset, segment, &data,
@@ -1394,7 +1465,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += size;
             break;
 
-	case4(070):
+        case4(070):
             if (opx->segment != segment) {
                 data = opx->offset;
                 out(offset, segment, &data,
@@ -1408,18 +1479,18 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 4;
             break;
 
-	case4(074):
+        case4(074):
             if (opx->segment == NO_SEG)
                 errfunc(ERR_NONFATAL, "value referenced by FAR is not"
                         " relocatable");
-	    data = 0;
+            data = 0;
             out(offset, segment, &data, OUT_ADDRESS, 2,
                 outfmt->segbase(1 + opx->segment),
                 opx->wrt);
             offset += 2;
             break;
 
-	case4(0140):
+        case4(0140):
             data = opx->offset;
             warn_overflow_opd(opx, 2);
             if (is_sbyte16(opx)) {
@@ -1434,8 +1505,8 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             }
             break;
 
-	case4(0144):
-	    EMIT_REX();
+        case4(0144):
+            EMIT_REX();
             bytes[0] = *codes++;
             if (is_sbyte16(opx))
                 bytes[0] |= 2;  /* s-bit */
@@ -1443,7 +1514,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset++;
             break;
 
-	case4(0150):
+        case4(0150):
             data = opx->offset;
             warn_overflow_opd(opx, 4);
             if (is_sbyte32(opx)) {
@@ -1458,8 +1529,8 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             }
             break;
 
-	case4(0154):
-	    EMIT_REX();
+        case4(0154):
+            EMIT_REX();
             bytes[0] = *codes++;
             if (is_sbyte32(opx))
                 bytes[0] |= 2;  /* s-bit */
@@ -1467,64 +1538,48 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset++;
             break;
 
-	case4(0160):
-	case4(0164):
-	    break;
-
-	case 0171:
-	    bytes[0] =
-		(ins->drexdst << 4) |
-		(ins->rex & REX_OC ? 0x08 : 0) |
-		(ins->rex & (REX_R|REX_X|REX_B));
-	    ins->rex = 0;
+        case 0172:
+            c = *codes++;
+            opx = &ins->oprs[c >> 3];
+            bytes[0] = nasm_regvals[opx->basereg] << 4;
+            opx = &ins->oprs[c & 7];
+            if (opx->segment != NO_SEG || opx->wrt != NO_SEG) {
+                errfunc(ERR_NONFATAL,
+                        "non-absolute expression not permitted as argument %d",
+                        c & 7);
+            } else {
+                if (opx->offset & ~15) {
+                    errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
+                            "four-bit argument exceeds bounds");
+                }
+                bytes[0] |= opx->offset & 15;
+            }
             out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-	    offset++;
-	    break;
+            offset++;
+            break;
 
-	case 0172:
-	    c = *codes++;
-	    opx = &ins->oprs[c >> 3];
-	    bytes[0] = nasm_regvals[opx->basereg] << 4;
-	    opx = &ins->oprs[c & 7];
-	    if (opx->segment != NO_SEG || opx->wrt != NO_SEG) {
-		errfunc(ERR_NONFATAL,
-			"non-absolute expression not permitted as argument %d",
-			c & 7);
-	    } else {
-		if (opx->offset & ~15) {
-		    errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			    "four-bit argument exceeds bounds");
-		}
-		bytes[0] |= opx->offset & 15;
-	    }
-	    out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-	    offset++;
-	    break;
+        case 0173:
+            c = *codes++;
+            opx = &ins->oprs[c >> 4];
+            bytes[0] = nasm_regvals[opx->basereg] << 4;
+            bytes[0] |= c & 15;
+            out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
+            offset++;
+            break;
 
-	case 0173:
-	    c = *codes++;
-	    opx = &ins->oprs[c >> 4];
-	    bytes[0] = nasm_regvals[opx->basereg] << 4;
-	    bytes[0] |= c & 15;
-	    out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-	    offset++;
-	    break;
+        case4(0174):
+            bytes[0] = nasm_regvals[opx->basereg] << 4;
+            out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
+            offset++;
+            break;
 
-	case 0174:
-	    c = *codes++;
-	    opx = &ins->oprs[c];
-	    bytes[0] = nasm_regvals[opx->basereg] << 4;
-	    out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-	    offset++;
-	    break;
-
-	case4(0250):
+        case4(0250):
             data = opx->offset;
-	    if (opx->wrt == NO_SEG && opx->segment == NO_SEG &&
-		(int32_t)data != (int64_t)data) {
-		errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			"signed dword immediate exceeds bounds");
-	    }
+            if (opx->wrt == NO_SEG && opx->segment == NO_SEG &&
+                (int32_t)data != (int64_t)data) {
+                errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
+                        "signed dword immediate exceeds bounds");
+            }
             if (is_sbyte32(opx)) {
                 bytes[0] = data;
                 out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG,
@@ -1537,59 +1592,64 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             }
             break;
 
-	case4(0254):
+        case4(0254):
             data = opx->offset;
-	    if (opx->wrt == NO_SEG && opx->segment == NO_SEG &&
-		(int32_t)data != (int64_t)data) {
-		errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			"signed dword immediate exceeds bounds");
-	    }
-	    out(offset, segment, &data, OUT_ADDRESS, 4,
-		opx->segment, opx->wrt);
-	    offset += 4;
+            if (opx->wrt == NO_SEG && opx->segment == NO_SEG &&
+                (int32_t)data != (int64_t)data) {
+                errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
+                        "signed dword immediate exceeds bounds");
+            }
+            out(offset, segment, &data, OUT_ADDRESS, 4,
+                opx->segment, opx->wrt);
+            offset += 4;
             break;
 
-	case4(0260):
-	case 0270:
-	    codes += 2;
-	    if (ins->vex_cm != 1 || (ins->rex & (REX_W|REX_X|REX_B))) {
-		bytes[0] = (ins->vex_cm >> 6) ? 0x8f : 0xc4;
-		bytes[1] = (ins->vex_cm & 31) | ((~ins->rex & 7) << 5);
-		bytes[2] = ((ins->rex & REX_W) << (7-3)) |
-		    ((~ins->drexdst & 15)<< 3) | (ins->vex_wlp & 07);
-		out(offset, segment, &bytes, OUT_RAWDATA, 3, NO_SEG, NO_SEG);
-		offset += 3;
-	    } else {
-		bytes[0] = 0xc5;
-		bytes[1] = ((~ins->rex & REX_R) << (7-2)) |
-		    ((~ins->drexdst & 15) << 3) | (ins->vex_wlp & 07);
-		out(offset, segment, &bytes, OUT_RAWDATA, 2, NO_SEG, NO_SEG);
-		offset += 2;
-	    }
-	    break;
+        case4(0260):
+        case 0270:
+            codes += 2;
+            if (ins->vex_cm != 1 || (ins->rex & (REX_W|REX_X|REX_B))) {
+                bytes[0] = (ins->vex_cm >> 6) ? 0x8f : 0xc4;
+                bytes[1] = (ins->vex_cm & 31) | ((~ins->rex & 7) << 5);
+                bytes[2] = ((ins->rex & REX_W) << (7-3)) |
+                    ((~ins->vexreg & 15)<< 3) | (ins->vex_wlp & 07);
+                out(offset, segment, &bytes, OUT_RAWDATA, 3, NO_SEG, NO_SEG);
+                offset += 3;
+            } else {
+                bytes[0] = 0xc5;
+                bytes[1] = ((~ins->rex & REX_R) << (7-2)) |
+                    ((~ins->vexreg & 15) << 3) | (ins->vex_wlp & 07);
+                out(offset, segment, &bytes, OUT_RAWDATA, 2, NO_SEG, NO_SEG);
+                offset += 2;
+            }
+            break;
 
-	case4(0274):
-	{
-	    uint64_t uv, um;
-	    int s;
+        case 0271:
+        case 0272:
+        case 0273:
+            break;
 
-	    if (ins->rex & REX_W)
-		s = 64;
-	    else if (ins->prefixes[PPS_OSIZE] == P_O16)
-		s = 16;
-	    else if (ins->prefixes[PPS_OSIZE] == P_O32)
-		s = 32;
-	    else
-		s = bits;
+        case4(0274):
+        {
+            uint64_t uv, um;
+            int s;
 
-	    um = (uint64_t)2 << (s-1);
-	    uv = opx->offset;
+            if (ins->rex & REX_W)
+                s = 64;
+            else if (ins->prefixes[PPS_OSIZE] == P_O16)
+                s = 16;
+            else if (ins->prefixes[PPS_OSIZE] == P_O32)
+                s = 32;
+            else
+                s = bits;
 
-	    if (uv > 127 && uv < (uint64_t)-128 &&
-		(uv < um-128 || uv > um-1)) {
+            um = (uint64_t)2 << (s-1);
+            uv = opx->offset;
+
+            if (uv > 127 && uv < (uint64_t)-128 &&
+                (uv < um-128 || uv > um-1)) {
                 errfunc(ERR_WARNING | ERR_PASS2 | ERR_WARN_NOV,
-			"signed byte value exceeds bounds");
-	    }
+                        "signed byte value exceeds bounds");
+            }
             if (opx->segment != NO_SEG) {
                 data = uv;
                 out(offset, segment, &data, OUT_ADDRESS, 1,
@@ -1601,9 +1661,9 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             }
             offset += 1;
             break;
-	}
+        }
 
-	case4(0300):
+        case4(0300):
             break;
 
         case 0310:
@@ -1631,25 +1691,11 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             ins->rex = 0;
             break;
 
-	case4(0314):
-	    break;
-
-        case 0320:
-            if (bits != 16) {
-                *bytes = 0x66;
-                out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-                offset += 1;
-            } else
-                offset += 0;
+        case4(0314):
             break;
 
+        case 0320:
         case 0321:
-            if (bits == 16) {
-                *bytes = 0x66;
-                out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-                offset += 1;
-            } else
-                offset += 0;
             break;
 
         case 0322:
@@ -1660,8 +1706,8 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             ins->rex |= REX_W;
             break;
 
-	case 0325:
-	    break;
+        case 0325:
+            break;
 
         case 0330:
             *bytes = *codes++ ^ condval[ins->condition];
@@ -1672,7 +1718,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
         case 0331:
             break;
 
-	case 0332:
+        case 0332:
         case 0333:
             *bytes = c - 0332 + 0xF2;
             out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
@@ -1689,11 +1735,11 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             break;
 
         case 0335:
-	    break;
+            break;
 
         case 0336:
         case 0337:
-	    break;
+            break;
 
         case 0340:
             if (ins->oprs[0].segment != NO_SEG)
@@ -1707,12 +1753,12 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             }
             break;
 
-	case 0341:
-	    break;
+        case 0341:
+            break;
 
         case 0344:
         case 0345:
-	    bytes[0] = c & 1;
+            bytes[0] = c & 1;
             switch (ins->oprs[0].basereg) {
             case R_CS:
                 bytes[0] += 0x0E;
@@ -1736,7 +1782,7 @@ static void gencode(int32_t segment, int64_t offset, int bits,
 
         case 0346:
         case 0347:
-	    bytes[0] = c & 1;
+            bytes[0] = c & 1;
             switch (ins->oprs[0].basereg) {
             case R_FS:
                 bytes[0] += 0xA0;
@@ -1752,28 +1798,28 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset++;
             break;
 
-	case 0360:
-	    break;
+        case 0360:
+            break;
 
-	case 0361:
-	    bytes[0] = 0x66;
+        case 0361:
+            bytes[0] = 0x66;
             out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
             offset += 1;
-	    break;
+            break;
 
-	case 0362:
-	case 0363:
-	    bytes[0] = c - 0362 + 0xf2;
+        case 0362:
+        case 0363:
+            bytes[0] = c - 0362 + 0xf2;
             out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
             offset += 1;
-	    break;
+            break;
 
-	case 0364:
-	case 0365:
-	    break;
+        case 0364:
+        case 0365:
+            break;
 
         case 0366:
-	case 0367:
+        case 0367:
             *bytes = c - 0366 + 0x66;
             out(offset, segment, bytes, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
             offset += 1;
@@ -1781,7 +1827,6 @@ static void gencode(int32_t segment, int64_t offset, int bits,
 
         case 0370:
         case 0371:
-        case 0372:
             break;
 
         case 0373:
@@ -1790,55 +1835,52 @@ static void gencode(int32_t segment, int64_t offset, int bits,
             offset += 1;
             break;
 
-	case4(0100):
-	case4(0110):
-	case4(0120):
-	case4(0130):
-	case4(0200):
-	case4(0204):
-	case4(0210):
-	case4(0214):
-	case4(0220):
-	case4(0224):
-	case4(0230):
-	case4(0234):
-	    {
+        case 0374:
+            eat = EA_XMMVSIB;
+            break;
+
+        case 0375:
+            eat = EA_YMMVSIB;
+            break;
+
+        case4(0100):
+        case4(0110):
+        case4(0120):
+        case4(0130):
+        case4(0200):
+        case4(0204):
+        case4(0210):
+        case4(0214):
+        case4(0220):
+        case4(0224):
+        case4(0230):
+        case4(0234):
+            {
                 ea ea_data;
                 int rfield;
-		opflags_t rflags;
+                opflags_t rflags;
                 uint8_t *p;
                 int32_t s;
-		enum out_type type;
-		struct operand *opy = &ins->oprs[op2];
+                struct operand *opy = &ins->oprs[op2];
 
                 if (c <= 0177) {
-		    /* pick rfield from operand b (opx) */
-		    rflags = regflag(opx);
+                    /* pick rfield from operand b (opx) */
+                    rflags = regflag(opx);
                     rfield = nasm_regvals[opx->basereg];
-		} else {
-		    /* rfield is constant */
-		    rflags = 0;
+                } else {
+                    /* rfield is constant */
+                    rflags = 0;
                     rfield = c & 7;
-		}
-
-                if (!process_ea(opy, &ea_data, bits, ins->addr_size,
-				rfield, rflags)) {
-                    errfunc(ERR_NONFATAL, "invalid effective address");
                 }
 
+                if (process_ea(opy, &ea_data, bits, ins->addr_size,
+                               rfield, rflags) != eat)
+                    errfunc(ERR_NONFATAL, "invalid effective address");
 
                 p = bytes;
                 *p++ = ea_data.modrm;
                 if (ea_data.sib_present)
                     *p++ = ea_data.sib;
-
-		/* DREX suffixes come between the SIB and the displacement */
-		if (ins->rex & REX_D) {
-		    *p++ = (ins->drexdst << 4) |
-			   (ins->rex & REX_OC ? 0x08 : 0) |
-			   (ins->rex & (REX_R|REX_X|REX_B));
-		    ins->rex = 0;
-		}
 
                 s = p - bytes;
                 out(offset, segment, bytes, OUT_RAWDATA, s, NO_SEG, NO_SEG);
@@ -1858,22 +1900,28 @@ static void gencode(int32_t segment, int64_t offset, int bits,
                 case 4:
                 case 8:
                     data = opy->offset;
-                    warn_overflow_opd(opy, ea_data.bytes);
                     s += ea_data.bytes;
-		    if (ea_data.rip) {
-			if (opy->segment == segment) {
-			    data -= insn_end;
-			    out(offset, segment, &data, OUT_ADDRESS,
-				ea_data.bytes, NO_SEG, NO_SEG);
-			} else {
-			    out(offset, segment, &data,	OUT_REL4ADR,
-				insn_end - offset, opy->segment, opy->wrt);
-			}
-		    } else {
-			type = OUT_ADDRESS;
-			out(offset, segment, &data, OUT_ADDRESS,
-			    ea_data.bytes, opy->segment, opy->wrt);
-		    }
+                    if (ea_data.rip) {
+                        if (opy->segment == segment) {
+                            data -= insn_end;
+                            if (overflow_signed(data, ea_data.bytes))
+                                warn_overflow(ERR_PASS2, ea_data.bytes);
+                            out(offset, segment, &data, OUT_ADDRESS,
+                                ea_data.bytes, NO_SEG, NO_SEG);
+                        } else {
+                            /* overflow check in output/linker? */
+                            out(offset, segment, &data,        OUT_REL4ADR,
+                                insn_end - offset, opy->segment, opy->wrt);
+                        }
+                    } else {
+                        if (overflow_general(opy->offset, ins->addr_size >> 3) ||
+                            signed_bits(opy->offset, ins->addr_size) !=
+                            signed_bits(opy->offset, ea_data.bytes * 8))
+                            warn_overflow(ERR_PASS2, ea_data.bytes);
+
+                        out(offset, segment, &data, OUT_ADDRESS,
+                            ea_data.bytes, opy->segment, opy->wrt);
+                    }
                     break;
                 default:
                     /* Impossible! */
@@ -1883,30 +1931,28 @@ static void gencode(int32_t segment, int64_t offset, int bits,
                     break;
                 }
                 offset += s;
-	    }
-	    break;
+            }
+            break;
 
-	default:
-	    errfunc(ERR_PANIC, "internal instruction table corrupt"
-		    ": instruction code \\%o (0x%02X) given", c, c);
-	    break;
+        default:
+            errfunc(ERR_PANIC, "internal instruction table corrupt"
+                    ": instruction code \\%o (0x%02X) given", c, c);
+            break;
         }
     }
 }
 
 static opflags_t regflag(const operand * o)
 {
-    if (o->basereg < EXPR_REG_START || o->basereg >= REG_ENUM_LIMIT) {
+    if (!is_register(o->basereg))
         errfunc(ERR_PANIC, "invalid operand passed to regflag()");
-    }
     return nasm_reg_flags[o->basereg];
 }
 
 static int32_t regval(const operand * o)
 {
-    if (o->basereg < EXPR_REG_START || o->basereg >= REG_ENUM_LIMIT) {
+    if (!is_register(o->basereg))
         errfunc(ERR_PANIC, "invalid operand passed to regval()");
-    }
     return nasm_regvals[o->basereg];
 }
 
@@ -1915,9 +1961,8 @@ static int op_rexflags(const operand * o, int mask)
     opflags_t flags;
     int val;
 
-    if (o->basereg < EXPR_REG_START || o->basereg >= REG_ENUM_LIMIT) {
+    if (!is_register(o->basereg))
         errfunc(ERR_PANIC, "invalid operand passed to op_rexflags()");
-    }
 
     flags = nasm_reg_flags[o->basereg];
     val = nasm_regvals[o->basereg];
@@ -1930,20 +1975,20 @@ static int rexflags(int val, opflags_t flags, int mask)
     int rex = 0;
 
     if (val >= 8)
-	rex |= REX_B|REX_X|REX_R;
+        rex |= REX_B|REX_X|REX_R;
     if (flags & BITS64)
-	rex |= REX_W;
-    if (!(REG_HIGH & ~flags))	/* AH, CH, DH, BH */
-	rex |= REX_H;
-    else if (!(REG8 & ~flags) && val >= 4) /* SPL, BPL, SIL, DIL */
-	rex |= REX_P;
+        rex |= REX_W;
+    if (!(REG_HIGH & ~flags))                   /* AH, CH, DH, BH */
+        rex |= REX_H;
+    else if (!(REG8 & ~flags) && val >= 4)      /* SPL, BPL, SIL, DIL */
+        rex |= REX_P;
 
     return rex & mask;
 }
 
 static enum match_result find_match(const struct itemplate **tempp,
-				    insn *instruction,
-				    int32_t segment, int64_t offset, int bits)
+                                    insn *instruction,
+                                    int32_t segment, int64_t offset, int bits)
 {
     const struct itemplate *temp;
     enum match_result m, merr;
@@ -1952,69 +1997,69 @@ static enum match_result find_match(const struct itemplate **tempp,
     int i;
 
     for (i = 0; i < instruction->operands; i++)
-	xsizeflags[i] = instruction->oprs[i].type & SIZE_MASK;
+        xsizeflags[i] = instruction->oprs[i].type & SIZE_MASK;
 
     merr = MERR_INVALOP;
 
     for (temp = nasm_instructions[instruction->opcode];
-	 temp->opcode != I_none; temp++) {
-	m = matches(temp, instruction, bits);
-	if (m == MOK_JUMP) {
-	    if (jmp_match(segment, offset, bits, instruction, temp->code))
-		m = MOK_GOOD;
-	    else
-		m = MERR_INVALOP;
-	} else if (m == MERR_OPSIZEMISSING &&
-		   (temp->flags & IF_SMASK) != IF_SX) {
-	    /*
-	     * Missing operand size and a candidate for fuzzy matching...
-	     */
-	    for (i = 0; i < temp->operands; i++) {
-		if ((temp->opd[i] & SAME_AS) == 0)
-		    xsizeflags[i] |= temp->opd[i] & SIZE_MASK;
-	    }
-	    opsizemissing = true;
-	}
-	if (m > merr)
-	    merr = m;
-	if (merr == MOK_GOOD)
-	    goto done;
+         temp->opcode != I_none; temp++) {
+        m = matches(temp, instruction, bits);
+        if (m == MOK_JUMP) {
+            if (jmp_match(segment, offset, bits, instruction, temp))
+                m = MOK_GOOD;
+            else
+                m = MERR_INVALOP;
+        } else if (m == MERR_OPSIZEMISSING &&
+                   (temp->flags & IF_SMASK) != IF_SX) {
+            /*
+             * Missing operand size and a candidate for fuzzy matching...
+             */
+            for (i = 0; i < temp->operands; i++) {
+                if ((temp->opd[i] & SAME_AS) == 0)
+                    xsizeflags[i] |= temp->opd[i] & SIZE_MASK;
+            }
+            opsizemissing = true;
+        }
+        if (m > merr)
+            merr = m;
+        if (merr == MOK_GOOD)
+            goto done;
     }
 
     /* No match, but see if we can get a fuzzy operand size match... */
     if (!opsizemissing)
-	goto done;
+        goto done;
 
     for (i = 0; i < instruction->operands; i++) {
-	/*
-	 * We ignore extrinsic operand sizes on registers, so we should
-	 * never try to fuzzy-match on them.  This also resolves the case
-	 * when we have e.g. "xmmrm128" in two different positions.
-	 */
-	if (is_class(REGISTER, instruction->oprs[i].type))
-	    continue;
+        /*
+         * We ignore extrinsic operand sizes on registers, so we should
+         * never try to fuzzy-match on them.  This also resolves the case
+         * when we have e.g. "xmmrm128" in two different positions.
+         */
+        if (is_class(REGISTER, instruction->oprs[i].type))
+            continue;
 
-	/* This tests if xsizeflags[i] has more than one bit set */
-	if ((xsizeflags[i] & (xsizeflags[i]-1)))
-	    goto done;		/* No luck */
+        /* This tests if xsizeflags[i] has more than one bit set */
+        if ((xsizeflags[i] & (xsizeflags[i]-1)))
+            goto done;                /* No luck */
 
-	instruction->oprs[i].type |= xsizeflags[i]; /* Set the size */
+        instruction->oprs[i].type |= xsizeflags[i]; /* Set the size */
     }
 
     /* Try matching again... */
     for (temp = nasm_instructions[instruction->opcode];
-	 temp->opcode != I_none; temp++) {
-	m = matches(temp, instruction, bits);
-	if (m == MOK_JUMP) {
-	    if (jmp_match(segment, offset, bits, instruction, temp->code))
-		m = MOK_GOOD;
-	    else
-		m = MERR_INVALOP;
-	}
-	if (m > merr)
-	    merr = m;
-	if (merr == MOK_GOOD)
-	    goto done;
+         temp->opcode != I_none; temp++) {
+        m = matches(temp, instruction, bits);
+        if (m == MOK_JUMP) {
+            if (jmp_match(segment, offset, bits, instruction, temp))
+                m = MOK_GOOD;
+            else
+                m = MERR_INVALOP;
+        }
+        if (m > merr)
+            merr = m;
+        if (merr == MOK_GOOD)
+            goto done;
     }
 
 done:
@@ -2039,6 +2084,12 @@ static enum match_result matches(const struct itemplate *itemp,
      */
     if (itemp->operands != instruction->operands)
         return MERR_INVALOP;
+
+    /*
+     * Is it legal?
+     */
+    if (!(optimizing > 0) && (itemp->flags & IF_OPT))
+	return MERR_INVALOP;
 
     /*
      * Check that no spurious colons or TOs are present
@@ -2192,155 +2243,272 @@ static enum match_result matches(const struct itemplate *itemp,
         return MERR_BADMODE;
 
     /*
+     * If we have a HLE prefix, look for the NOHLE flag
+     */
+    if ((itemp->flags & IF_NOHLE) &&
+        (has_prefix(instruction, PPS_REP, P_XACQUIRE) ||
+         has_prefix(instruction, PPS_REP, P_XRELEASE)))
+        return MERR_BADHLE;
+
+    /*
      * Check if special handling needed for Jumps
      */
-    if ((itemp->code[0] & 0374) == 0370)
+    if ((itemp->code[0] & ~1) == 0370)
         return MOK_JUMP;
 
     return MOK_GOOD;
 }
 
-static ea *process_ea(operand * input, ea * output, int bits,
-		      int addrbits, int rfield, opflags_t rflags)
+static enum ea_type process_ea(operand *input, ea *output, int bits,
+                               int addrbits, int rfield, opflags_t rflags)
 {
     bool forw_ref = !!(input->opflags & OPFLAG_UNKNOWN);
 
-    output->rip = false;
+    output->type    = EA_SCALAR;
+    output->rip     = false;
 
     /* REX flags for the rfield operand */
-    output->rex |= rexflags(rfield, rflags, REX_R|REX_P|REX_W|REX_H);
+    output->rex     |= rexflags(rfield, rflags, REX_R | REX_P | REX_W | REX_H);
 
-    if (is_class(REGISTER, input->type)) {  /* register direct */
-        int i;
-	opflags_t f;
+    if (is_class(REGISTER, input->type)) {
+        /*
+         * It's a direct register.
+         */
+        opflags_t f;
 
-        if (input->basereg < EXPR_REG_START /* Verify as Register */
-            || input->basereg >= REG_ENUM_LIMIT)
-            return NULL;
-	f = regflag(input);
-        i = nasm_regvals[input->basereg];
+        if (!is_register(input->basereg))
+            goto err;
 
-	if (REG_EA & ~f)
-	    return NULL;	/* Invalid EA register */
+        f = regflag(input);
 
-	output->rex |= op_rexflags(input, REX_B|REX_P|REX_W|REX_H);
+        if (!is_class(REG_EA, f))
+            goto err;
 
-        output->sib_present = false;             /* no SIB necessary */
-        output->bytes = 0;  /* no offset necessary either */
-        output->modrm = 0xC0 | ((rfield & 7) << 3) | (i & 7);
-    } else {                    /* it's a memory reference */
-        if (input->basereg == -1
-            && (input->indexreg == -1 || input->scale == 0)) {
-            /* it's a pure offset */
-            if (bits == 64 && (~input->type & IP_REL)) {
-              int scale, index, base;
-              output->sib_present = true;
-              scale = 0;
-              index = 4;
-              base = 5;
-              output->sib = (scale << 6) | (index << 3) | base;
-              output->bytes = 4;
-              output->modrm = 4 | ((rfield & 7) << 3);
-	      output->rip = false;
-            } else {
-              output->sib_present = false;
-              output->bytes = (addrbits != 16 ? 4 : 2);
-              output->modrm = (addrbits != 16 ? 5 : 6) | ((rfield & 7) << 3);
-	      output->rip = bits == 64;
+        output->rex         |= op_rexflags(input, REX_B | REX_P | REX_W | REX_H);
+        output->sib_present = false;    /* no SIB necessary */
+        output->bytes       = 0;        /* no offset necessary either */
+        output->modrm       = GEN_MODRM(3, rfield, nasm_regvals[input->basereg]);
+    } else {
+        /*
+         * It's a memory reference.
+         */
+        if (input->basereg == -1 &&
+            (input->indexreg == -1 || input->scale == 0)) {
+            /*
+             * It's a pure offset.
+             */
+            if (bits == 64 && ((input->type & IP_REL) == IP_REL) &&
+                input->segment == NO_SEG) {
+                nasm_error(ERR_WARNING | ERR_PASS1, "absolute address can not be RIP-relative");
+                input->type &= ~IP_REL;
+                input->type |= MEMORY;
             }
-        } else {                /* it's an indirection */
+
+            if (input->eaflags & EAF_BYTEOFFS ||
+                (input->eaflags & EAF_WORDOFFS &&
+                 input->disp_size != (addrbits != 16 ? 32 : 16))) {
+                nasm_error(ERR_WARNING | ERR_PASS1, "displacement size ignored on absolute address");
+            }
+
+            if (bits == 64 && (~input->type & IP_REL)) {
+                output->sib_present = true;
+                output->sib         = GEN_SIB(0, 4, 5);
+                output->bytes       = 4;
+                output->modrm       = GEN_MODRM(0, rfield, 4);
+                output->rip         = false;
+            } else {
+                output->sib_present = false;
+                output->bytes       = (addrbits != 16 ? 4 : 2);
+                output->modrm       = GEN_MODRM(0, rfield, (addrbits != 16 ? 5 : 6));
+                output->rip         = bits == 64;
+            }
+        } else {
+            /*
+             * It's an indirection.
+             */
             int i = input->indexreg, b = input->basereg, s = input->scale;
-            int32_t o = input->offset, seg = input->segment;
+            int32_t seg = input->segment;
             int hb = input->hintbase, ht = input->hinttype;
-            int t, it, bt;	 	/* register numbers */
-	    opflags_t x, ix, bx;	/* register flags */
+            int t, it, bt;              /* register numbers */
+            opflags_t x, ix, bx;        /* register flags */
 
             if (s == 0)
                 i = -1;         /* make this easy, at least */
 
-            if (i >= EXPR_REG_START && i < REG_ENUM_LIMIT) {
+            if (is_register(i)) {
                 it = nasm_regvals[i];
-		ix = nasm_reg_flags[i];
-	    } else {
+                ix = nasm_reg_flags[i];
+            } else {
                 it = -1;
-		ix = 0;
-	    }
+                ix = 0;
+            }
 
-	    if (b >= EXPR_REG_START && b < REG_ENUM_LIMIT) {
+            if (is_register(b)) {
                 bt = nasm_regvals[b];
-		bx = nasm_reg_flags[b];
-	    } else {
+                bx = nasm_reg_flags[b];
+            } else {
                 bt = -1;
-		bx = 0;
-	    }
+                bx = 0;
+            }
 
-	    /* check for a 32/64-bit memory reference... */
-	    if ((ix|bx) & (BITS32|BITS64)) {
-                /* it must be a 32/64-bit memory reference. Firstly we have
-                 * to check that all registers involved are type E/Rxx. */
-		int32_t sok = BITS32|BITS64;
+            /* if either one are a vector register... */
+            if ((ix|bx) & (XMMREG|YMMREG) & ~REG_EA) {
+                int32_t sok = BITS32 | BITS64;
+                int32_t o = input->offset;
+                int mod, scale, index, base;
+
+                /*
+                 * For a vector SIB, one has to be a vector and the other,
+                 * if present, a GPR.  The vector must be the index operand.
+                 */
+                if (it == -1 || (bx & (XMMREG|YMMREG) & ~REG_EA)) {
+                    if (s == 0)
+                        s = 1;
+                    else if (s != 1)
+                        goto err;
+
+                    t = bt, bt = it, it = t;
+                    x = bx, bx = ix, ix = x;
+                }
+
+                if (bt != -1) {
+                    if (REG_GPR & ~bx)
+                        goto err;
+                    if (!(REG64 & ~bx) || !(REG32 & ~bx))
+                        sok &= bx;
+                    else
+                        goto err;
+                }
+
+                /*
+                 * While we're here, ensure the user didn't specify
+                 * WORD or QWORD
+                 */
+                if (input->disp_size == 16 || input->disp_size == 64)
+                    goto err;
+
+                if (addrbits == 16 ||
+                    (addrbits == 32 && !(sok & BITS32)) ||
+                    (addrbits == 64 && !(sok & BITS64)))
+                    goto err;
+
+                output->type = (ix & YMMREG & ~REG_EA)
+                    ? EA_YMMVSIB : EA_XMMVSIB;
+
+                output->rex |= rexflags(it, ix, REX_X);
+                output->rex |= rexflags(bt, bx, REX_B);
+
+                index = it & 7; /* it is known to be != -1 */
+
+                switch (s) {
+                case 1:
+                    scale = 0;
+                    break;
+                case 2:
+                    scale = 1;
+                    break;
+                case 4:
+                    scale = 2;
+                    break;
+                case 8:
+                    scale = 3;
+                    break;
+                default:   /* then what the smeg is it? */
+                    goto err;    /* panic */
+                }
+                
+                if (bt == -1) {
+                    base = 5;
+                    mod = 0;
+                } else {
+                    base = (bt & 7);
+                    if (base != REG_NUM_EBP && o == 0 &&
+                        seg == NO_SEG && !forw_ref &&
+                        !(input->eaflags & (EAF_BYTEOFFS | EAF_WORDOFFS)))
+                        mod = 0;
+                    else if (input->eaflags & EAF_BYTEOFFS ||
+                             (o >= -128 && o <= 127 &&
+                              seg == NO_SEG && !forw_ref &&
+                              !(input->eaflags & EAF_WORDOFFS)))
+                        mod = 1;
+                    else
+                        mod = 2;
+                }
+
+                output->sib_present = true;
+                output->bytes       = (bt == -1 || mod == 2 ? 4 : mod);
+                output->modrm       = GEN_MODRM(mod, rfield, 4);
+                output->sib         = GEN_SIB(scale, index, base);
+            } else if ((ix|bx) & (BITS32|BITS64)) {
+                /*
+                 * it must be a 32/64-bit memory reference. Firstly we have
+                 * to check that all registers involved are type E/Rxx.
+                 */
+                int32_t sok = BITS32 | BITS64;
+                int32_t o = input->offset;
 
                 if (it != -1) {
-		    if (!(REG64 & ~ix) || !(REG32 & ~ix))
-			sok &= ix;
-		    else
-			return NULL;
-		}
+                    if (!(REG64 & ~ix) || !(REG32 & ~ix))
+                        sok &= ix;
+                    else
+                        goto err;
+                }
 
-		if (bt != -1) {
-		    if (REG_GPR & ~bx)
-			return NULL; /* Invalid register */
-		    if (~sok & bx & SIZE_MASK)
-			return NULL; /* Invalid size */
-		    sok &= bx;
-		}
+                if (bt != -1) {
+                    if (REG_GPR & ~bx)
+                        goto err; /* Invalid register */
+                    if (~sok & bx & SIZE_MASK)
+                        goto err; /* Invalid size */
+                    sok &= bx;
+                }
 
-                /* While we're here, ensure the user didn't specify
-		   WORD or QWORD. */
+                /*
+                 * While we're here, ensure the user didn't specify
+                 * WORD or QWORD
+                 */
                 if (input->disp_size == 16 || input->disp_size == 64)
-		    return NULL;
+                    goto err;
 
-		if (addrbits == 16 ||
-		    (addrbits == 32 && !(sok & BITS32)) ||
-		    (addrbits == 64 && !(sok & BITS64)))
-		    return NULL;
+                if (addrbits == 16 ||
+                    (addrbits == 32 && !(sok & BITS32)) ||
+                    (addrbits == 64 && !(sok & BITS64)))
+                    goto err;
 
                 /* now reorganize base/index */
                 if (s == 1 && bt != it && bt != -1 && it != -1 &&
-                    ((hb == b && ht == EAH_NOTBASE)
-                     || (hb == i && ht == EAH_MAKEBASE))) {
-		    /* swap if hints say so */
+                    ((hb == b && ht == EAH_NOTBASE) ||
+                     (hb == i && ht == EAH_MAKEBASE))) {
+                    /* swap if hints say so */
                     t = bt, bt = it, it = t;
-		    x = bx, bx = ix, ix = x;
-		}
+                    x = bx, bx = ix, ix = x;
+                }
                 if (bt == it)     /* convert EAX+2*EAX to 3*EAX */
                     bt = -1, bx = 0, s++;
                 if (bt == -1 && s == 1 && !(hb == it && ht == EAH_NOTBASE)) {
-		    /* make single reg base, unless hint */
+                    /* make single reg base, unless hint */
                     bt = it, bx = ix, it = -1, ix = 0;
-		}
-                if (((s == 2 && it != REG_NUM_ESP
-                      && !(input->eaflags & EAF_TIMESTWO)) || s == 3
-                     || s == 5 || s == 9) && bt == -1)
+                }
+                if (((s == 2 && it != REG_NUM_ESP && !(input->eaflags & EAF_TIMESTWO)) ||
+                      s == 3 || s == 5 || s == 9) && bt == -1)
                     bt = it, bx = ix, s--; /* convert 3*EAX to EAX+2*EAX */
-                if (it == -1 && (bt & 7) != REG_NUM_ESP
-                    && (input->eaflags & EAF_TIMESTWO))
+                if (it == -1 && (bt & 7) != REG_NUM_ESP &&
+                    (input->eaflags & EAF_TIMESTWO))
                     it = bt, ix = bx, bt = -1, bx = 0, s = 1;
                 /* convert [NOSPLIT EAX] to sib format with 0x0 displacement */
                 if (s == 1 && it == REG_NUM_ESP) {
-		    /* swap ESP into base if scale is 1 */
+                    /* swap ESP into base if scale is 1 */
                     t = it, it = bt, bt = t;
-		    x = ix, ix = bx, bx = x;
-		}
-                if (it == REG_NUM_ESP
-                    || (s != 1 && s != 2 && s != 4 && s != 8 && it != -1))
-                    return NULL;        /* wrong, for various reasons */
+                    x = ix, ix = bx, bx = x;
+                }
+                if (it == REG_NUM_ESP ||
+                    (s != 1 && s != 2 && s != 4 && s != 8 && it != -1))
+                    goto err;        /* wrong, for various reasons */
 
-		output->rex |= rexflags(it, ix, REX_X);
-		output->rex |= rexflags(bt, bx, REX_B);
+                output->rex |= rexflags(it, ix, REX_X);
+                output->rex |= rexflags(bt, bx, REX_B);
 
                 if (it == -1 && (bt & 7) != REG_NUM_ESP) {
-		    /* no SIB needed */
+                    /* no SIB needed */
                     int mod, rm;
 
                     if (bt == -1) {
@@ -2349,24 +2517,23 @@ static ea *process_ea(operand * input, ea * output, int bits,
                     } else {
                         rm = (bt & 7);
                         if (rm != REG_NUM_EBP && o == 0 &&
-                                seg == NO_SEG && !forw_ref &&
-                                !(input->eaflags &
-                                  (EAF_BYTEOFFS | EAF_WORDOFFS)))
+                            seg == NO_SEG && !forw_ref &&
+                            !(input->eaflags & (EAF_BYTEOFFS | EAF_WORDOFFS)))
                             mod = 0;
                         else if (input->eaflags & EAF_BYTEOFFS ||
-                                 (o >= -128 && o <= 127 && seg == NO_SEG
-                                  && !forw_ref
-                                  && !(input->eaflags & EAF_WORDOFFS)))
+                                 (o >= -128 && o <= 127 &&
+                                  seg == NO_SEG && !forw_ref &&
+                                  !(input->eaflags & EAF_WORDOFFS)))
                             mod = 1;
                         else
                             mod = 2;
                     }
 
                     output->sib_present = false;
-                    output->bytes = (bt == -1 || mod == 2 ? 4 : mod);
-                    output->modrm = (mod << 6) | ((rfield & 7) << 3) | rm;
+                    output->bytes       = (bt == -1 || mod == 2 ? 4 : mod);
+                    output->modrm       = GEN_MODRM(mod, rfield, rm);
                 } else {
-		    /* we need a SIB */
+                    /* we need a SIB */
                     int mod, scale, index, base;
 
                     if (it == -1)
@@ -2388,7 +2555,7 @@ static ea *process_ea(operand * input, ea * output, int bits,
                         scale = 3;
                         break;
                     default:   /* then what the smeg is it? */
-                        return NULL;    /* panic */
+                        goto err;    /* panic */
                     }
 
                     if (bt == -1) {
@@ -2397,43 +2564,42 @@ static ea *process_ea(operand * input, ea * output, int bits,
                     } else {
                         base = (bt & 7);
                         if (base != REG_NUM_EBP && o == 0 &&
-                                    seg == NO_SEG && !forw_ref &&
-                                    !(input->eaflags &
-                                      (EAF_BYTEOFFS | EAF_WORDOFFS)))
+                            seg == NO_SEG && !forw_ref &&
+                            !(input->eaflags & (EAF_BYTEOFFS | EAF_WORDOFFS)))
                             mod = 0;
                         else if (input->eaflags & EAF_BYTEOFFS ||
-                                 (o >= -128 && o <= 127 && seg == NO_SEG
-                                  && !forw_ref
-                                  && !(input->eaflags & EAF_WORDOFFS)))
+                                 (o >= -128 && o <= 127 &&
+                                  seg == NO_SEG && !forw_ref &&
+                                  !(input->eaflags & EAF_WORDOFFS)))
                             mod = 1;
                         else
                             mod = 2;
                     }
 
                     output->sib_present = true;
-                    output->bytes =  (bt == -1 || mod == 2 ? 4 : mod);
-                    output->modrm = (mod << 6) | ((rfield & 7) << 3) | 4;
-                    output->sib = (scale << 6) | (index << 3) | base;
+                    output->bytes       = (bt == -1 || mod == 2 ? 4 : mod);
+                    output->modrm       = GEN_MODRM(mod, rfield, 4);
+                    output->sib         = GEN_SIB(scale, index, base);
                 }
             } else {            /* it's 16-bit */
                 int mod, rm;
+                int16_t o = input->offset;
 
                 /* check for 64-bit long mode */
                 if (addrbits == 64)
-                    return NULL;
+                    goto err;
 
                 /* check all registers are BX, BP, SI or DI */
-                if ((b != -1 && b != R_BP && b != R_BX && b != R_SI
-                     && b != R_DI) || (i != -1 && i != R_BP && i != R_BX
-                                       && i != R_SI && i != R_DI))
-                    return NULL;
+                if ((b != -1 && b != R_BP && b != R_BX && b != R_SI && b != R_DI) ||
+                    (i != -1 && i != R_BP && i != R_BX && i != R_SI && i != R_DI))
+                    goto err;
 
                 /* ensure the user didn't specify DWORD/QWORD */
                 if (input->disp_size == 32 || input->disp_size == 64)
-                    return NULL;
+                    goto err;
 
                 if (s != 1 && i != -1)
-                    return NULL;        /* no can do, in 16-bit EA */
+                    goto err;        /* no can do, in 16-bit EA */
                 if (b == -1 && i != -1) {
                     int tmp = b;
                     b = i;
@@ -2446,12 +2612,12 @@ static ea *process_ea(operand * input, ea * output, int bits,
                 }
                 /* have BX/BP as base, SI/DI index */
                 if (b == i)
-                    return NULL;        /* shouldn't ever happen, in theory */
+                    goto err;        /* shouldn't ever happen, in theory */
                 if (i != -1 && b != -1 &&
                     (i == R_BP || i == R_BX || b == R_SI || b == R_DI))
-                    return NULL;        /* invalid combinations */
-                if (b == -1)    /* pure offset: handled above */
-                    return NULL;        /* so if it gets to here, panic! */
+                    goto err;        /* invalid combinations */
+                if (b == -1)            /* pure offset: handled above */
+                    goto err;        /* so if it gets to here, panic! */
 
                 rm = -1;
                 if (i != -1)
@@ -2483,29 +2649,31 @@ static ea *process_ea(operand * input, ea * output, int bits,
                         rm = 7;
                         break;
                     }
-                if (rm == -1)   /* can't happen, in theory */
-                    return NULL;        /* so panic if it does */
+                if (rm == -1)           /* can't happen, in theory */
+                    goto err;        /* so panic if it does */
 
                 if (o == 0 && seg == NO_SEG && !forw_ref && rm != 6 &&
                     !(input->eaflags & (EAF_BYTEOFFS | EAF_WORDOFFS)))
                     mod = 0;
                 else if (input->eaflags & EAF_BYTEOFFS ||
-                         (o >= -128 && o <= 127 && seg == NO_SEG
-                          && !forw_ref
-                          && !(input->eaflags & EAF_WORDOFFS)))
+                         (o >= -128 && o <= 127 && seg == NO_SEG &&
+                          !forw_ref && !(input->eaflags & EAF_WORDOFFS)))
                     mod = 1;
                 else
                     mod = 2;
 
                 output->sib_present = false;    /* no SIB - it's 16-bit */
-                output->bytes = mod;    /* bytes of offset needed */
-                output->modrm = (mod << 6) | ((rfield & 7) << 3) | rm;
+                output->bytes       = mod;      /* bytes of offset needed */
+                output->modrm       = GEN_MODRM(mod, rfield, rm);
             }
         }
     }
 
     output->size = 1 + output->sib_present + output->bytes;
-    return output;
+    return output->type;
+
+err:
+    return output->type = EA_INVALID;
 }
 
 static void add_asp(insn *ins, int addrbits)
@@ -2517,87 +2685,85 @@ static void add_asp(insn *ins, int addrbits)
 
     switch (ins->prefixes[PPS_ASIZE]) {
     case P_A16:
-	valid &= 16;
-	break;
+        valid &= 16;
+        break;
     case P_A32:
-	valid &= 32;
-	break;
+        valid &= 32;
+        break;
     case P_A64:
-	valid &= 64;
-	break;
+        valid &= 64;
+        break;
     case P_ASP:
-	valid &= (addrbits == 32) ? 16 : 32;
-	break;
+        valid &= (addrbits == 32) ? 16 : 32;
+        break;
     default:
-	break;
+        break;
     }
 
     for (j = 0; j < ins->operands; j++) {
-	if (is_class(MEMORY, ins->oprs[j].type)) {
-	    opflags_t i, b;
+        if (is_class(MEMORY, ins->oprs[j].type)) {
+            opflags_t i, b;
 
-	    /* Verify as Register */
-	    if (ins->oprs[j].indexreg < EXPR_REG_START
-		|| ins->oprs[j].indexreg >= REG_ENUM_LIMIT)
-		i = 0;
-	    else
-		i = nasm_reg_flags[ins->oprs[j].indexreg];
+            /* Verify as Register */
+            if (!is_register(ins->oprs[j].indexreg))
+                i = 0;
+            else
+                i = nasm_reg_flags[ins->oprs[j].indexreg];
 
-	    /* Verify as Register */
-	    if (ins->oprs[j].basereg < EXPR_REG_START
-		|| ins->oprs[j].basereg >= REG_ENUM_LIMIT)
-		b = 0;
-	    else
-		b = nasm_reg_flags[ins->oprs[j].basereg];
+            /* Verify as Register */
+            if (!is_register(ins->oprs[j].basereg))
+                b = 0;
+            else
+                b = nasm_reg_flags[ins->oprs[j].basereg];
 
-	    if (ins->oprs[j].scale == 0)
-		i = 0;
+            if (ins->oprs[j].scale == 0)
+                i = 0;
 
-	    if (!i && !b) {
-		int ds = ins->oprs[j].disp_size;
-		if ((addrbits != 64 && ds > 8) ||
-		    (addrbits == 64 && ds == 16))
-		    valid &= ds;
-	    } else {
-		if (!(REG16 & ~b))
-		    valid &= 16;
-		if (!(REG32 & ~b))
-		    valid &= 32;
-		if (!(REG64 & ~b))
-		    valid &= 64;
+            if (!i && !b) {
+                int ds = ins->oprs[j].disp_size;
+                if ((addrbits != 64 && ds > 8) ||
+                    (addrbits == 64 && ds == 16))
+                    valid &= ds;
+            } else {
+                if (!(REG16 & ~b))
+                    valid &= 16;
+                if (!(REG32 & ~b))
+                    valid &= 32;
+                if (!(REG64 & ~b))
+                    valid &= 64;
 
-		if (!(REG16 & ~i))
-		    valid &= 16;
-		if (!(REG32 & ~i))
-		    valid &= 32;
-		if (!(REG64 & ~i))
-		    valid &= 64;
-	    }
-	}
+                if (!(REG16 & ~i))
+                    valid &= 16;
+                if (!(REG32 & ~i))
+                    valid &= 32;
+                if (!(REG64 & ~i))
+                    valid &= 64;
+            }
+        }
     }
 
     if (valid & addrbits) {
-	ins->addr_size = addrbits;
+        ins->addr_size = addrbits;
     } else if (valid & ((addrbits == 32) ? 16 : 32)) {
-	/* Add an address size prefix */
-	enum prefixes pref = (addrbits == 32) ? P_A16 : P_A32;
-	ins->prefixes[PPS_ASIZE] = pref;
-	ins->addr_size = (addrbits == 32) ? 16 : 32;
+        /* Add an address size prefix */
+        ins->prefixes[PPS_ASIZE] = (addrbits == 32) ? P_A16 : P_A32;;
+        ins->addr_size = (addrbits == 32) ? 16 : 32;
     } else {
-	/* Impossible... */
-	errfunc(ERR_NONFATAL, "impossible combination of address sizes");
-	ins->addr_size = addrbits; /* Error recovery */
+        /* Impossible... */
+        errfunc(ERR_NONFATAL, "impossible combination of address sizes");
+        ins->addr_size = addrbits; /* Error recovery */
     }
 
     defdisp = ins->addr_size == 16 ? 16 : 32;
 
     for (j = 0; j < ins->operands; j++) {
-	if (!(MEM_OFFS & ~ins->oprs[j].type) &&
-	    (ins->oprs[j].disp_size ? ins->oprs[j].disp_size : defdisp)
-	    != ins->addr_size) {
-	    /* mem_offs sizes must match the address size; if not,
-	       strip the MEM_OFFS bit and match only EA instructions */
-	    ins->oprs[j].type &= ~(MEM_OFFS & ~MEMORY);
-	}
+        if (!(MEM_OFFS & ~ins->oprs[j].type) &&
+            (ins->oprs[j].disp_size ? ins->oprs[j].disp_size : defdisp) != ins->addr_size) {
+            /*
+             * mem_offs sizes must match the address size; if not,
+             * strip the MEM_OFFS bit and match only EA instructions
+             */
+            ins->oprs[j].type &= ~(MEM_OFFS & ~MEMORY);
+        }
     }
 }

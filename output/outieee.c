@@ -139,22 +139,22 @@ static struct ExtBack {
 
 /* NOTE: the first segment MUST be the lineno segment */
 static struct ieeeSection {
-    struct ieeeObjData *data, *datacurr;
     struct ieeeSection *next;
+    char *name;
+    struct ieeeObjData *data, *datacurr;
     struct ieeeFixupp *fptr, *flptr;
     int32_t index;                 /* the NASM segment id */
     int32_t ieee_index;            /* the OBJ-file segment index */
     int32_t currentpos;
     int32_t align;                 /* can be SEG_ABS + absolute addr */
     int32_t startpos;
+    int32_t use32;                 /* is this segment 32-bit? */
+    struct ieeePublic *pubhead, **pubtail, *lochead, **loctail;
     enum {
         CMB_PRIVATE = 0,
         CMB_PUBLIC = 2,
         CMB_COMMON = 6
     } combine;
-    int32_t use32;                 /* is this segment 32-bit? */
-    struct ieeePublic *pubhead, **pubtail, *lochead, **loctail;
-    char *name;
 } *seghead, **segtail, *ieee_seg_needs_update;
 
 struct ieeeObjData {
@@ -372,7 +372,7 @@ static void ieee_deflabel(char *name, int32_t segment,
         i = segment / 2;
         eb = ebhead;
         if (!eb) {
-            eb = *ebtail = nasm_malloc(sizeof(*eb));
+            eb = *ebtail = nasm_zalloc(sizeof(*eb));
             eb->next = NULL;
             ebtail = &eb->next;
         }
@@ -380,7 +380,7 @@ static void ieee_deflabel(char *name, int32_t segment,
             if (eb && eb->next)
                 eb = eb->next;
             else {
-                eb = *ebtail = nasm_malloc(sizeof(*eb));
+                eb = *ebtail = nasm_zalloc(sizeof(*eb));
                 eb->next = NULL;
                 ebtail = &eb->next;
             }
@@ -841,6 +841,28 @@ static int ieee_directive(enum directives directive, char *value, int pass)
     default:
 	return 0;
     }
+}
+
+static void ieee_sectalign(int32_t seg, unsigned int value)
+{
+    struct ieeeSection *s;
+
+    list_for_each(s, seghead) {
+        if (s->index == seg)
+            break;
+    }
+
+    /*
+     * 256 is maximum there, note it may happen
+     * that align is issued on "absolute" segment
+     * it's fine since SEG_ABS > 256 and we never
+     * get escape this test
+     */
+    if (!s || !is_power2(value) || value > 256)
+        return;
+
+    if ((unsigned int)s->align < value)
+        s->align = value;
 }
 
 /*
@@ -1501,6 +1523,7 @@ struct ofmt of_ieee = {
     ieee_out,
     ieee_deflabel,
     ieee_segment,
+    ieee_sectalign,
     ieee_segbase,
     ieee_directive,
     ieee_filename,

@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2010 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -43,6 +43,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include <limits.h>
 
 #include "nasm.h"
 #include "nasmlib.h"
@@ -122,9 +123,6 @@ static uint8_t elf_osabi = 0;   /* Default OSABI = 0 (System V or Linux) */
 static uint8_t elf_abiver = 0;  /* Current ABI version */
 
 extern struct ofmt of_elf32;
-extern struct ofmt of_elf;
-
-#define SOC(ln,aa) ln - line_base + (line_range * aa) + opcode_base
 
 static struct ELF_SECTDATA {
     void *data;
@@ -144,14 +142,6 @@ static struct SAA *elf_build_symtab(int32_t *, int32_t *);
 static struct SAA *elf_build_reltab(int32_t *, struct Reloc *);
 static void add_sectname(char *, char *);
 
-struct stabentry {
-    uint32_t n_strx;
-    uint8_t n_type;
-    uint8_t n_other;
-    uint16_t n_desc;
-    uint32_t n_value;
-};
-
 struct erel {
     int offset, info;
 };
@@ -163,11 +153,11 @@ struct symlininfo {
 };
 
 struct linelist {
-    struct symlininfo info;
-    int line;
-    char *filename;
     struct linelist *next;
     struct linelist *last;
+    struct symlininfo info;
+    char *filename;
+    int line;
 };
 
 struct sectlist {
@@ -268,12 +258,6 @@ static void elf_init(void)
     def_seg = seg_alloc();
 }
 
-static void elf_init_hack(void)
-{
-    of_elf32.current_dfmt = of_elf.current_dfmt; /* Sync debugging format */
-    elf_init();
-}
-
 static void elf_cleanup(int debuginfo)
 {
     struct Reloc *r;
@@ -316,25 +300,21 @@ static int elf_make_section(char *name, int type, int flags, int align)
 {
     struct Section *s;
 
-    s = nasm_malloc(sizeof(*s));
+    s = nasm_zalloc(sizeof(*s));
 
     if (type != SHT_NOBITS)
         s->data = saa_init(1L);
-    s->head = NULL;
     s->tail = &s->head;
-    s->len = s->size = 0;
-    s->nrelocs = 0;
     if (!strcmp(name, ".text"))
         s->index = def_seg;
     else
         s->index = seg_alloc();
     add_sectname("", name);
-    s->name = nasm_malloc(1 + strlen(name));
-    strcpy(s->name, name);
-    s->type = type;
-    s->flags = flags;
-    s->align = align;
-    s->gsyms = NULL;
+
+    s->name     = nasm_strdup(name);
+    s->type     = type;
+    s->flags    = flags;
+    s->align    = align;
 
     if (nsects >= sectlen)
         sects = nasm_realloc(sects, (sectlen += SECT_DELTA) * sizeof(*sects));
@@ -343,12 +323,11 @@ static int elf_make_section(char *name, int type, int flags, int align)
     return nsects - 1;
 }
 
-
 static int32_t elf_section_names(char *name, int pass, int *bits)
 {
     char *p;
     uint32_t flags, flags_and, flags_or;
-    uint32_t align;
+    uint64_t align;
     int type, i;
 
     /*
@@ -364,53 +343,8 @@ static int32_t elf_section_names(char *name, int pass, int *bits)
         *p++ = '\0';
     flags_and = flags_or = type = align = 0;
 
-    p = nasm_skip_spaces(p);
-    while (*p) {
-        char *q = p;
-        p = nasm_skip_word(p);
-        if (*p)
-            *p++ = '\0';
-        p = nasm_skip_spaces(p);
-
-        if (!nasm_strnicmp(q, "align=", 6)) {
-            align = atoi(q + 6);
-            if (align == 0)
-                align = 1;
-            if ((align - 1) & align) {  /* means it's not a power of two */
-                nasm_error(ERR_NONFATAL, "section alignment %d is not"
-                      " a power of two", align);
-                align = 1;
-            }
-        } else if (!nasm_stricmp(q, "alloc")) {
-            flags_and |= SHF_ALLOC;
-            flags_or |= SHF_ALLOC;
-        } else if (!nasm_stricmp(q, "noalloc")) {
-            flags_and |= SHF_ALLOC;
-            flags_or &= ~SHF_ALLOC;
-        } else if (!nasm_stricmp(q, "exec")) {
-            flags_and |= SHF_EXECINSTR;
-            flags_or |= SHF_EXECINSTR;
-        } else if (!nasm_stricmp(q, "noexec")) {
-            flags_and |= SHF_EXECINSTR;
-            flags_or &= ~SHF_EXECINSTR;
-        } else if (!nasm_stricmp(q, "write")) {
-            flags_and |= SHF_WRITE;
-            flags_or |= SHF_WRITE;
-        } else if (!nasm_stricmp(q, "tls")) {
-            flags_and |= SHF_TLS;
-            flags_or |= SHF_TLS;
-        } else if (!nasm_stricmp(q, "nowrite")) {
-            flags_and |= SHF_WRITE;
-            flags_or &= ~SHF_WRITE;
-        } else if (!nasm_stricmp(q, "progbits")) {
-            type = SHT_PROGBITS;
-        } else if (!nasm_stricmp(q, "nobits")) {
-            type = SHT_NOBITS;
-        } else if (pass == 1) {
-            nasm_error(ERR_WARNING, "Unknown section attribute '%s' ignored on"
-                  " declaration of section `%s'", q, name);
-        }
-    }
+    section_attrib(name, p, pass, &flags_and,
+                   &flags_or, &align, &type);
 
     if (!strcmp(name, ".shstrtab") ||
         !strcmp(name, ".symtab") ||
@@ -441,7 +375,7 @@ static int32_t elf_section_names(char *name, int pass, int *bits)
           if ((type && sects[i]->type != type)
               || (align && sects[i]->align != align)
               || (flags_and && ((sects[i]->flags & flags_and) != flags_or)))
-            nasm_error(ERR_WARNING, "section attributes ignored on"
+            nasm_error(ERR_WARNING, "incompatible section attributes ignored on"
                   " redeclaration of section `%s'", name);
     }
 
@@ -668,16 +602,12 @@ static void elf_add_reloc(struct Section *sect, int32_t segment, int type)
 {
     struct Reloc *r;
 
-    r = *sect->tail = nasm_malloc(sizeof(struct Reloc));
+    r = *sect->tail = nasm_zalloc(sizeof(struct Reloc));
     sect->tail = &r->next;
-    r->next = NULL;
 
     r->address = sect->len;
-    if (segment == NO_SEG)
-        r->symbol = 0;
-    else {
+    if (segment != NO_SEG) {
         int i;
-        r->symbol = 0;
         for (i = 0; i < nsects; i++)
             if (segment == sects[i]->index)
                 r->symbol = i + 2;
@@ -753,11 +683,11 @@ static int32_t elf_add_gsym_reloc(struct Section *sect,
 
     r = *sect->tail = nasm_malloc(sizeof(struct Reloc));
     sect->tail = &r->next;
-    r->next = NULL;
 
-    r->address = sect->len;
-    r->symbol = GLOBAL_TEMP_BASE + sym->globnum;
-    r->type = type;
+    r->next     = NULL;
+    r->address  = sect->len;
+    r->symbol   = GLOBAL_TEMP_BASE + sym->globnum;
+    r->type     = type;
 
     sect->nrelocs++;
 
@@ -770,7 +700,8 @@ static void elf_out(int32_t segto, const void *data,
 {
     struct Section *s;
     int32_t addr;
-    uint8_t mydata[4], *p;
+    uint8_t mydata[8], *p;
+    int reltype, bytes;
     int i;
     static struct symlininfo sinfo;
 
@@ -816,18 +747,24 @@ static void elf_out(int32_t segto, const void *data,
         return;
     }
 
-    if (type == OUT_RESERVE) {
+    switch (type) {
+    case OUT_RESERVE:
         if (s->type == SHT_PROGBITS) {
             nasm_error(ERR_WARNING, "uninitialized space declared in"
                   " non-BSS section `%s': zeroing", s->name);
             elf_sect_write(s, NULL, size);
         } else
             s->len += size;
-    } else if (type == OUT_RAWDATA) {
+	break;
+
+    case OUT_RAWDATA:
         if (segment != NO_SEG)
             nasm_error(ERR_PANIC, "OUT_RAWDATA with other than NO_SEG");
         elf_sect_write(s, data, size);
-    } else if (type == OUT_ADDRESS) {
+	break;
+
+    case OUT_ADDRESS:
+    {
         bool gnu16 = false;
         addr = *(int64_t *)data;
         if (segment != NO_SEG) {
@@ -836,11 +773,27 @@ static void elf_out(int32_t segto, const void *data,
                       " segment base references");
             } else {
                 if (wrt == NO_SEG) {
-                    if (size == 2) {
-                        gnu16 = true;
-                        elf_add_reloc(s, segment, R_386_16);
-                    } else {
-                        elf_add_reloc(s, segment, R_386_32);
+		    /* 
+		     * The if() is a hack to deal with compilers which
+		     * don't handle switch() statements with 64-bit
+		     * expressions.
+		     */
+		    if (size < UINT_MAX) {
+			switch ((unsigned int)size) {
+			case 1:
+			    gnu16 = true;
+			    elf_add_reloc(s, segment, R_386_8);
+			    break;
+			case 2:
+			    gnu16 = true;
+			    elf_add_reloc(s, segment, R_386_16);
+			    break;
+			case 4:
+			    elf_add_reloc(s, segment, R_386_32);
+			    break;
+			default:	/* Error issued further down */
+			    break;
+			}
                     }
                 } else if (wrt == elf_gotpc_sect + 1) {
                     /*
@@ -880,36 +833,45 @@ static void elf_out(int32_t segto, const void *data,
         p = mydata;
         if (gnu16) {
             nasm_error(ERR_WARNING | ERR_WARN_GNUELF,
-                  "16-bit relocations in ELF is a GNU extension");
-            WRITESHORT(p, addr);
-        } else {
-            if (size != 4 && segment != NO_SEG) {
-                nasm_error(ERR_NONFATAL,
-                      "Unsupported non-32-bit ELF relocation");
-            }
-            WRITELONG(p, addr);
+                  "8- or 16-bit relocations in ELF32 is a GNU extension");
+        } else if (size != 4 && segment != NO_SEG) {
+	    nasm_error(ERR_NONFATAL, "Unsupported non-32-bit ELF relocation");
         }
+	WRITEADDR(p, addr, size);
         elf_sect_write(s, mydata, size);
-    } else if (type == OUT_REL2ADR) {
-        if (segment == segto)
-            nasm_error(ERR_PANIC, "intra-segment OUT_REL2ADR");
+	break;
+    }
+
+    case OUT_REL1ADR:
+	bytes = 1;
+	reltype = R_386_PC8;
+	goto rel12adr;
+    case OUT_REL2ADR:
+	bytes = 2;
+	reltype = R_386_PC16;
+	goto rel12adr;
+
+    rel12adr:
+        nasm_assert(segment != segto);
         if (segment != NO_SEG && segment % 2) {
             nasm_error(ERR_NONFATAL, "ELF format does not support"
                   " segment base references");
         } else {
             if (wrt == NO_SEG) {
                 nasm_error(ERR_WARNING | ERR_WARN_GNUELF,
-                      "16-bit relocations in ELF is a GNU extension");
-                elf_add_reloc(s, segment, R_386_PC16);
+                      "8- or 16-bit relocations in ELF is a GNU extension");
+                elf_add_reloc(s, segment, reltype);
             } else {
                 nasm_error(ERR_NONFATAL,
                       "Unsupported non-32-bit ELF relocation");
             }
         }
-        p = mydata;
+	p = mydata;
         WRITESHORT(p, *(int64_t *)data - size);
-        elf_sect_write(s, mydata, 2L);
-    } else if (type == OUT_REL4ADR) {
+        elf_sect_write(s, mydata, bytes);
+	break;
+
+    case OUT_REL4ADR:
         if (segment == segto)
             nasm_error(ERR_PANIC, "intra-segment OUT_REL4ADR");
         if (segment != NO_SEG && segment % 2) {
@@ -931,9 +893,18 @@ static void elf_out(int32_t segto, const void *data,
                 wrt = NO_SEG;   /* we can at least _try_ to continue */
             }
         }
-        p = mydata;
+	p = mydata;
         WRITELONG(p, *(int64_t *)data - size);
         elf_sect_write(s, mydata, 4L);
+	break;
+
+    case OUT_REL8ADR:
+	nasm_error(ERR_NONFATAL,
+		   "32-bit ELF format does not support 64-bit relocations");
+	p = mydata;
+	WRITEDLONG(p, 0);
+	elf_sect_write(s, mydata, 8L);
+	break;
     }
 }
 
@@ -1030,7 +1001,7 @@ static void elf_write(void)
      */
 
     elf_foffs = 0x40 + 0x28 * nsections;
-    align = ALIGN(elf_foffs, SEG_ALIGN) - elf_foffs;
+    align = ALIGN(elf_foffs, SEC_FILEALIGN) - elf_foffs;
     elf_foffs += align;
     elf_nsect = 0;
     elf_sects = nasm_malloc(sizeof(*elf_sects) * nsections);
@@ -1055,12 +1026,12 @@ static void elf_write(void)
 
     /* .symtab */
     elf_section_header(p - shstrtab, SHT_SYMTAB, 0, symtab, true,
-                        symtablen, sec_strtab, symtablocal, 4, 16);
+                       symtablen, sec_strtab, symtablocal, 4, 16);
     p += strlen(p) + 1;
 
     /* .strtab */
     elf_section_header(p - shstrtab, SHT_STRTAB, 0, strs, true,
-                        strslen, 0, 0, 1, 0);
+                       strslen, 0, 0, 1, 0);
     p += strlen(p) + 1;
 
     /* The relocation sections */
@@ -1089,7 +1060,7 @@ static void elf_write(void)
 
             /* link -> symtable  info -> section to refer to */
             elf_section_header(p - shstrtab, SHT_REL, 0, stabrelbuf, false,
-                                stabrellen, sec_symtab, sec_stab, 4, 8);
+                               stabrellen, sec_symtab, sec_stab, 4, 8);
             p += strlen(p) + 1;
         }
     } else if (of_elf32.current_dfmt == &df_dwarf) {
@@ -1330,7 +1301,7 @@ static void elf_section_header(int name, int type, int flags,
     fwriteint32_t(type == 0 ? 0L : elf_foffs, ofile);
     fwriteint32_t(datalen, ofile);
     if (data)
-        elf_foffs += ALIGN(datalen, SEG_ALIGN);
+        elf_foffs += ALIGN(datalen, SEC_FILEALIGN);
     fwriteint32_t((int32_t)link, ofile);
     fwriteint32_t((int32_t)info, ofile);
     fwriteint32_t((int32_t)align, ofile);
@@ -1343,7 +1314,7 @@ static void elf_write_sections(void)
     for (i = 0; i < elf_nsect; i++)
         if (elf_sects[i].data) {
             int32_t len = elf_sects[i].len;
-            int32_t reallen = ALIGN(len, SEG_ALIGN);
+            int32_t reallen = ALIGN(len, SEC_FILEALIGN);
             int32_t align = reallen - len;
             if (elf_sects[i].is_saa)
                 saa_fpwrite(elf_sects[i].data, ofile);
@@ -1358,6 +1329,24 @@ static void elf_sect_write(struct Section *sect,
 {
     saa_wbytes(sect->data, data, len);
     sect->len += len;
+}
+
+static void elf_sectalign(int32_t seg, unsigned int value)
+{
+    struct Section *s = NULL;
+    int i;
+
+    for (i = 0; i < nsects; i++) {
+        if (sects[i]->index == seg) {
+            s = sects[i];
+            break;
+        }
+    }
+    if (!s || !is_power2(value))
+        return;
+
+    if (value > s->align)
+        s->align = value;
 }
 
 static int32_t elf_segbase(int32_t segment)
@@ -1456,29 +1445,13 @@ struct ofmt of_elf32 = {
     elf_out,
     elf_deflabel,
     elf_section_names,
+    elf_sectalign,
     elf_segbase,
     elf_directive,
     elf_filename,
     elf_cleanup
 };
 
-struct ofmt of_elf = {
-    "ELF (short name for ELF32) ",
-    "elf",
-    0,
-    elf32_debugs_arr,
-    &df_stabs,
-    elf_stdmac,
-    elf_init_hack,
-    elf_set_info,
-    elf_out,
-    elf_deflabel,
-    elf_section_names,
-    elf_segbase,
-    elf_directive,
-    elf_filename,
-    elf_cleanup
-};
 /* again, the stabs debugging stuff (code) */
 
 static void stabs32_linenum(const char *filename, int32_t linenumber,
@@ -1598,7 +1571,7 @@ static void stabs32_output(int type, void *param)
         if (debug_immcall) {
             s = (struct symlininfo *)param;
             if (!(sects[s->section]->flags & SHF_EXECINSTR))
-                return; /* we are only interested in the text stuff */
+                return; /* line info is only collected for executable sections */
             numlinestabs++;
             el = (struct linelist *)nasm_malloc(sizeof(struct linelist));
             el->info.offset = s->offset;
@@ -1618,15 +1591,6 @@ static void stabs32_output(int type, void *param)
     }
     debug_immcall = 0;
 }
-
-#define WRITE_STAB(p,n_strx,n_type,n_other,n_desc,n_value)  \
-    do {                                                    \
-        WRITELONG(p,n_strx);                                \
-        WRITECHAR(p,n_type);                                \
-        WRITECHAR(p,n_other);                               \
-        WRITESHORT(p,n_desc);                               \
-        WRITELONG(p,n_value);                               \
-    } while (0)
 
 /* for creating the .stab , .stabstr and .rel.stab sections in memory */
 

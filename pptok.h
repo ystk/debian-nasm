@@ -10,20 +10,22 @@ enum preproc_token {
     PP_ELIFNDEF      =   5,
     PP_ELIFEMPTY     =   6,
     PP_ELIFNEMPTY    =   7,
-    PP_ELIFID        =   8,
-    PP_ELIFNID       =   9,
-    PP_ELIFIDN       =  10,
-    PP_ELIFNIDN      =  11,
-    PP_ELIFIDNI      =  12,
-    PP_ELIFNIDNI     =  13,
-    PP_ELIFMACRO     =  14,
-    PP_ELIFNMACRO    =  15,
-    PP_ELIFNUM       =  16,
-    PP_ELIFNNUM      =  17,
-    PP_ELIFSTR       =  18,
-    PP_ELIFNSTR      =  19,
-    PP_ELIFTOKEN     =  20,
-    PP_ELIFNTOKEN    =  21,
+    PP_ELIFENV       =   8,
+    PP_ELIFNENV      =   9,
+    PP_ELIFID        =  10,
+    PP_ELIFNID       =  11,
+    PP_ELIFIDN       =  12,
+    PP_ELIFNIDN      =  13,
+    PP_ELIFIDNI      =  14,
+    PP_ELIFNIDNI     =  15,
+    PP_ELIFMACRO     =  16,
+    PP_ELIFNMACRO    =  17,
+    PP_ELIFNUM       =  18,
+    PP_ELIFNNUM      =  19,
+    PP_ELIFSTR       =  20,
+    PP_ELIFNSTR      =  21,
+    PP_ELIFTOKEN     =  22,
+    PP_ELIFNTOKEN    =  23,
     PP_IF            =  32,
     PP_IFN           =  33,
     PP_IFCTX         =  34,
@@ -32,20 +34,22 @@ enum preproc_token {
     PP_IFNDEF        =  37,
     PP_IFEMPTY       =  38,
     PP_IFNEMPTY      =  39,
-    PP_IFID          =  40,
-    PP_IFNID         =  41,
-    PP_IFIDN         =  42,
-    PP_IFNIDN        =  43,
-    PP_IFIDNI        =  44,
-    PP_IFNIDNI       =  45,
-    PP_IFMACRO       =  46,
-    PP_IFNMACRO      =  47,
-    PP_IFNUM         =  48,
-    PP_IFNNUM        =  49,
-    PP_IFSTR         =  50,
-    PP_IFNSTR        =  51,
-    PP_IFTOKEN       =  52,
-    PP_IFNTOKEN      =  53,
+    PP_IFENV         =  40,
+    PP_IFNENV        =  41,
+    PP_IFID          =  42,
+    PP_IFNID         =  43,
+    PP_IFIDN         =  44,
+    PP_IFNIDN        =  45,
+    PP_IFIDNI        =  46,
+    PP_IFNIDNI       =  47,
+    PP_IFMACRO       =  48,
+    PP_IFNMACRO      =  49,
+    PP_IFNUM         =  50,
+    PP_IFNNUM        =  51,
+    PP_IFSTR         =  52,
+    PP_IFNSTR        =  53,
+    PP_IFTOKEN       =  54,
+    PP_IFNTOKEN      =  55,
     PP_ARG           =  64,
     PP_ASSIGN        =  65,
     PP_CLEAR         =  66,
@@ -98,13 +102,14 @@ enum pp_conditional {
     PPC_IFCTX        =   2,
     PPC_IFDEF        =   4,
     PPC_IFEMPTY      =   6,
-    PPC_IFID         =   8,
-    PPC_IFIDN        =  10,
-    PPC_IFIDNI       =  12,
-    PPC_IFMACRO      =  14,
-    PPC_IFNUM        =  16,
-    PPC_IFSTR        =  18,
-    PPC_IFTOKEN      =  20,
+    PPC_IFENV        =   8,
+    PPC_IFID         =  10,
+    PPC_IFIDN        =  12,
+    PPC_IFIDNI       =  14,
+    PPC_IFMACRO      =  16,
+    PPC_IFNUM        =  18,
+    PPC_IFSTR        =  20,
+    PPC_IFTOKEN      =  22,
 };
 
 #define PP_COND(x)     ((enum pp_conditional)((x) & 0x1e))
@@ -120,6 +125,8 @@ enum pp_conditional {
 	case PP_ELIFNDEF:\
 	case PP_ELIFEMPTY: \
 	case PP_ELIFNEMPTY:\
+	case PP_ELIFENV: \
+	case PP_ELIFNENV:\
 	case PP_ELIFID: \
 	case PP_ELIFNID:\
 	case PP_ELIFIDN: \
@@ -143,6 +150,8 @@ enum pp_conditional {
 	case PP_IFNDEF:\
 	case PP_IFEMPTY: \
 	case PP_IFNEMPTY:\
+	case PP_IFENV: \
+	case PP_IFNENV:\
 	case PP_IFID: \
 	case PP_IFNID:\
 	case PP_IFIDN: \

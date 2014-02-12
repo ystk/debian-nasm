@@ -1,15 +1,17 @@
 /*
- * This file is generated from directives.dat
- * by directives.pl; do not edit.
+ * This file is generated from directiv.dat
+ * by directiv.pl; do not edit.
  */
 
 #include "compiler.h"
 #include <string.h>
 #include "nasm.h"
 #include "hashtbl.h"
-#include "directives.h"
+#include "directiv.h"
 
-const char * const directives[24] = {
+const char * const directives[26] = 
+{
+    NULL,
     NULL,
     "absolute",
     "bits",
@@ -24,6 +26,7 @@ const char * const directives[24] = {
     "section",
     "segment",
     "warning",
+    "sectalign",
     "export",
     "group",
     "import",
@@ -49,7 +52,7 @@ enum directives find_directive(const char *token)
         0,
         10,
         0,
-        9,
+        10,
         UNUSED,
         UNUSED,
         UNUSED,
@@ -61,16 +64,16 @@ enum directives find_directive(const char *token)
         UNUSED,
         0,
         UNUSED,
-        22,
-        16,
+        23,
+        17,
+        12,
+        -15,
+        14,
         UNUSED,
-        -14,
-        13,
         UNUSED,
-        UNUSED,
-        20,
-        -17,
-        13,
+        21,
+        -18,
+        14,
         3,
     };
     static const int16_t hash2[32] = {
@@ -82,10 +85,10 @@ enum directives find_directive(const char *token)
         UNUSED,
         6,
         0,
-        19,
+        20,
         2,
         0,
-        28,
+        29,
         0,
         0,
         3,
@@ -93,7 +96,7 @@ enum directives find_directive(const char *token)
         UNUSED,
         UNUSED,
         8,
-        21,
+        22,
         9,
         1,
         UNUSED,
@@ -116,12 +119,12 @@ enum directives find_directive(const char *token)
     k2 = (uint32_t)(crc >> 32);
 
     ix = hash1[k1 & 0x1f] + hash2[k2 & 0x1f];
-    if (ix >= 23)
-        return D_NONE;
+    if (ix >= 24)
+        return D_unknown;
 
-    ix++;
+    ix += 2;
     if (nasm_stricmp(token, directives[ix]))
-        return D_NONE;
+        return D_unknown;
 
     return ix;
 }

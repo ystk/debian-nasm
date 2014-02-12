@@ -1,6 +1,6 @@
 ;; --------------------------------------------------------------------------
-;;
-;;   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+;;   
+;;   Copyright 2010 The NASM Authors - All Rights Reserved
 ;;   See the file AUTHORS included with the NASM distribution for
 ;;   the specific copyright holders.
 ;;
@@ -14,7 +14,7 @@
 ;;     copyright notice, this list of conditions and the following
 ;;     disclaimer in the documentation and/or other materials provided
 ;;     with the distribution.
-;;
+;;     
 ;;     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
 ;;     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
 ;;     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -30,33 +30,25 @@
 ;;     EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ;;
 ;; --------------------------------------------------------------------------
+
 ;;
-;; List of global NASM directives (including backend-specific ones)
+;; fp.mac
+;;
+;; Floating-point utility macros
 ;;
 
-; --- Global directives
-absolute
-bits
-common
-cpu
-debug
-default
-extern
-float
-global
-list
-section
-segment
-warning
+USE: fp
 
-; --- Format-specific directives
-export				; outcoff, outobj
-group				; outobj
-import				; outobj
-library				; outrdf2
-map				; outbin
-module				; outrdf2
-org				; outbin
-osabi				; outelf
-safeseh				; outcoff
-uppercase			; outieee, outobj
+%define	Inf		__Infinity__
+%define NaN		__QNaN__
+%define QNaN		__QNaN__
+%define SNaN		__SNaN__
+
+%define float8(x)	__float8__(x)
+%define float16(x)	__float16__(x)
+%define float32(x)	__float32__(x)
+%define float64(x)	__float64__(x)
+%define float80m(x)	__float80m__(x)
+%define float80e(x)	__float80e__(x)
+%define float128l(x)	__float128l__(x)
+%define float128h(x)	__float128h__(x)

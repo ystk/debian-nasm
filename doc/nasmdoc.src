@@ -1,6 +1,6 @@
 \# --------------------------------------------------------------------------
-\#   
-\#   Copyright 1996-2010 The NASM Authors - All Rights Reserved
+\#
+\#   Copyright 1996-2012 The NASM Authors - All Rights Reserved
 \#   See the file AUTHORS included with the NASM distribution for
 \#   the specific copyright holders.
 \#
@@ -14,7 +14,7 @@
 \#     copyright notice, this list of conditions and the following
 \#     disclaimer in the documentation and/or other materials provided
 \#     with the distribution.
-\#     
+\#
 \#     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
 \#     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
 \#     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -35,16 +35,16 @@
 \#
 \M{category}{Programming}
 \M{title}{NASM - The Netwide Assembler}
-\M{year}{1996-2010}
+\M{year}{1996-2012}
 \M{author}{The NASM Development Team}
 \M{copyright_tail}{-- All Rights Reserved}
 \M{license}{This document is redistributable under the license given in the file "LICENSE" distributed in the NASM archive.}
-\M{auxinfo}{This release is dedicated to the memory of Charles A. Crayne.  We miss you, Chuck.}
 \M{summary}{This file documents NASM, the Netwide Assembler: an assembler targetting the Intel x86 series of processors, with portable source.}
 \M{infoname}{NASM}
 \M{infofile}{nasm}
 \M{infotitle}{The Netwide Assembler for x86}
 \M{epslogo}{nasmlogo.eps}
+\M{logoyadj}{-72}
 \IR{-D} \c{-D} option
 \IR{-E} \c{-E} option
 \IR{-F} \c{-F} option
@@ -161,6 +161,7 @@ in \c{elf}
 \IR{elf shared libraries} ELF, shared libraries
 \IR{elf32} \c{elf32}
 \IR{elf64} \c{elf64}
+\IR{elfx32} \c{elfx32}
 \IR{executable and linkable format} Executable and Linkable Format
 \IR{extern, obj extensions to} \c{EXTERN}, \c{obj} extensions to
 \IR{extern, rdf extensions to} \c{EXTERN}, \c{rdf} extensions to
@@ -240,6 +241,7 @@ Object File Format
 \IA{sib}{sib byte}
 \IR{sib byte} SIB byte
 \IR{align, smart} \c{ALIGN}, smart
+\IA{sectalign}{sectalign}
 \IR{solaris x86} Solaris x86
 \IA{standard section names}{standardized section names}
 \IR{symbols, exporting from dlls} symbols, exporting from DLLs
@@ -334,7 +336,7 @@ distribution archive, for the license conditions under which you may
 use NASM.  NASM is now under the so-called 2-clause BSD license, also
 known as the simplified BSD license.
 
-Copyright 1996-2010 the NASM Authors - All rights reserved.
+Copyright 1996-2011 the NASM Authors - All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -520,11 +522,11 @@ For Microsoft object file formats (\c{obj}, \c{win32} and \c{win64}),
 it will remove the \c{.asm} \i{extension} (or whatever extension you
 like to use - NASM doesn't care) from your source file name and
 substitute \c{.obj}. For Unix object file formats (\c{aout}, \c{as86},
-\c{coff}, \c{elf32}, \c{elf64}, \c{ieee}, \c{macho32} and \c{macho64})
-it will substitute \c{.o}. For \c{dbg}, \c{rdf}, \c{ith} and \c{srec},
-it will use \c{.dbg}, \c{.rdf}, \c{.ith} and \c{.srec}, respectively,
-and for the \c{bin} format it will simply remove the extension, so
-that \c{myfile.asm} produces the output file \c{myfile}.
+\c{coff}, \c{elf32}, \c{elf64}, \c{elfx32}, \c{ieee}, \c{macho32} and
+\c{macho64}) it will substitute \c{.o}. For \c{dbg}, \c{rdf}, \c{ith}
+and \c{srec}, it will use \c{.dbg}, \c{.rdf}, \c{.ith} and \c{.srec},
+respectively, and for the \c{bin} format it will simply remove the
+extension, so that \c{myfile.asm} produces the output file \c{myfile}.
 
 If the output file already exists, NASM will overwrite it, unless it
 has the same name as the input file, in which case it will give a
@@ -843,10 +845,6 @@ with a \i{stub preprocessor} which does nothing.
 
 \S{opt-O} The \i\c{-O} Option: Specifying \i{Multipass Optimization}
 
-NASM defaults to not optimizing operands which can fit into a signed byte.
-This means that if you want the shortest possible object code,
-you have to enable optimization.
-
 Using the \c{-O} option, you can tell NASM to carry out different
 levels of optimization.  The syntax is:
 
@@ -862,11 +860,12 @@ levels of optimization.  The syntax is:
 \b \c{-Ox} (where \c{x} is the actual letter \c{x}): Multipass optimization.
         Minimize branch offsets and signed immediate bytes,
         overriding size specification unless the \c{strict} keyword
-        has been used (see \k{strict}).  For compatability with earlier
+        has been used (see \k{strict}).  For compatibility with earlier
         releases, the letter \c{x} may also be any number greater than
         one. This number has no effect on the actual number of passes.
 
-The \c{-Ox} mode is recommended for most uses.
+The \c{-Ox} mode is recommended for most uses, and is the default
+since NASM 2.09.
 
 Note that this is a capital \c{O}, and is different from a small \c{o}, which
 is used to specify the output file name. See \k{opt-o}.
@@ -947,6 +946,13 @@ Disabled by default.
 Enabled by default.
 
 \b \i\c{user} controls \c{%warning} directives (see \k{pperror}).
+Enabled by default.
+
+\b \i\c{lock} warns about \c{LOCK} prefixes on unlockable instructions.
+Enabled by default.
+
+\b \i\c{hle} warns about invalid use of the HLE \c{XACQUIRE} or \c{XRELEASE}
+prefixes.
 Enabled by default.
 
 \b \i\c{error} causes warnings to be treated as errors.  Disabled by
@@ -1464,16 +1470,18 @@ character, string and floating-point.
 
 A numeric constant is simply a number. NASM allows you to specify
 numbers in a variety of number bases, in a variety of ways: you can
-suffix \c{H} or \c{X}, \c{Q} or \c{O}, and \c{B} for \i{hexadecimal},
-\i{octal} and \i{binary} respectively, or you can prefix \c{0x} for
-hexadecimal in the style of C, or you can prefix \c{$} for hexadecimal
-in the style of Borland Pascal. Note, though, that the \I{$,
+suffix \c{H} or \c{X}, \c{D} or \c{T}, \c{Q} or \c{O}, and \c{B} or
+\c{Y} for \i{hexadecimal}, \i{decimal}, \i{octal} and \i{binary}
+respectively, or you can prefix \c{0x}, for hexadecimal in the style
+of C, or you can prefix \c{$} for hexadecimal in the style of Borland
+Pascal or Motorola Assemblers. Note, though, that the \I{$,
 prefix}\c{$} prefix does double duty as a prefix on identifiers (see
 \k{syntax}), so a hex number prefixed with a \c{$} sign must have a
 digit after the \c{$} rather than a letter.  In addition, current
-versions of NASM accept the prefix \c{0h} for hexadecimal, \c{0o} or
-\c{0q} for octal, and \c{0b} for binary.  Please note that unlike C, a
-\c{0} prefix by itself does \e{not} imply an octal constant!
+versions of NASM accept the prefix \c{0h} for hexadecimal, \c{0d} or
+\c{0t} for decimal, \c{0o} or \c{0q} for octal, and \c{0b} or \c{0y}
+for binary.  Please note that unlike C, a \c{0} prefix by itself does
+\e{not} imply an octal constant!
 
 Numeric constants can have underscores (\c{_}) interspersed to break
 up long strings.
@@ -1491,10 +1499,12 @@ Some examples (all producing exactly the same code):
 \c         mov     ax,310q         ; octal
 \c         mov     ax,310o         ; octal again
 \c         mov     ax,0o310        ; octal yet again
-\c         mov     ax,0q310        ; hex yet again
+\c         mov     ax,0q310        ; octal yet again
 \c         mov     ax,11001000b    ; binary
 \c         mov     ax,1100_1000b   ; same binary constant
+\c         mov     ax,1100_1000y   ; same binary constant once more
 \c         mov     ax,0b1100_1000  ; same binary constant yet again
+\c         mov     ax,0y1100_1000  ; same binary constant yet again
 
 \S{strings} \I{Strings}\i{Character Strings}
 
@@ -1586,9 +1596,12 @@ operands to \c{DW}, and so forth.
 
 \S{unicode} \I{UTF-16}\I{UTF-32}\i{Unicode} Strings
 
-The special operators \i\c{__utf16__} and \i\c{__utf32__} allows
-definition of Unicode strings.  They take a string in UTF-8 format and
-converts it to (littleendian) UTF-16 or UTF-32, respectively.
+The special operators \i\c{__utf16__}, \i\c{__utf16le__},
+\i\c{__utf16be__}, \i\c{__utf32__}, \i\c{__utf32le__} and
+\i\c{__utf32be__} allows definition of Unicode strings.  They take a
+string in UTF-8 format and converts it to UTF-16 or UTF-32,
+respectively.  Unless the \c{be} forms are specified, the output is
+littleendian.
 
 For example:
 
@@ -1598,9 +1611,9 @@ For example:
 \c       dw u('C:\WINDOWS'), 0       ; Pathname in UTF-16
 \c       dd w(`A + B = \u206a`), 0   ; String in UTF-32
 
-\c{__utf16__} and \c{__utf32__} can be applied either to strings
-passed to the \c{DB} family instructions, or to character constants in
-an expression context.
+The UTF operators can be applied either to strings passed to the
+\c{DB} family instructions, or to character constants in an expression
+context.
 
 \S{fltconst} \I{floating-point, constants}Floating-Point Constants
 
@@ -1615,11 +1628,15 @@ Floating-point constants are expressed in the traditional form:
 digits, then a period, then optionally more digits, then optionally an
 \c{E} followed by an exponent. The period is mandatory, so that NASM
 can distinguish between \c{dd 1}, which declares an integer constant,
-and \c{dd 1.0} which declares a floating-point constant.  NASM also
-support C99-style hexadecimal floating-point: \c{0x}, hexadecimal
-digits, period, optionally more hexadeximal digits, then optionally a
-\c{P} followed by a \e{binary} (not hexadecimal) exponent in decimal
-notation.
+and \c{dd 1.0} which declares a floating-point constant.
+
+NASM also support C99-style hexadecimal floating-point: \c{0x},
+hexadecimal digits, period, optionally more hexadeximal digits, then
+optionally a \c{P} followed by a \e{binary} (not hexadecimal) exponent
+in decimal notation.  As an extension, NASM additionally supports the
+\c{0h} and \c{$} prefixes for hexadecimal, as well binary and octal
+floating-point, using the \c{0b} or \c{0y} and \c{0o} or \c{0q}
+prefixes, respectively.
 
 Underscores to break up groups of digits are permitted in
 floating-point constants as well.
@@ -1681,6 +1698,9 @@ respectively.  These are normally used as macros:
 \c %define NaN __QNaN__
 \c
 \c       dq    +1.5, -Inf, NaN         ; Double-precision constants
+
+The \c{%use fp} standard macro package contains a set of convenience
+macros.  See \k{pkg_fp}.
 
 \S{bcdconst} \I{floating-point, packed BCD constants}Packed BCD Constants
 
@@ -1952,7 +1972,11 @@ to the local label mechanism. So you could code
 
 NASM has the capacity to define other special symbols beginning with
 a double period: for example, \c{..start} is used to specify the
-entry point in the \c{obj} output format (see \k{dotdotstart}).
+entry point in the \c{obj} output format (see \k{dotdotstart}),
+\c{..imagebase} is used to find out the offset from a base address
+of the current image in the \c{win64} output format (see \k{win64pic}).
+So just keep in mind that symbols beginning with a double period are
+special.
 
 
 \C{preproc} The NASM \i{Preprocessor}
@@ -2403,21 +2427,6 @@ things like
 \c         silly {13,10}, crlf             ; crlf:      db 13,10
 
 
-\#\S{mlrmacro} \i{Recursive Multi-Line Macros}: \I\c{%irmacro}\i\c{%rmacro}
-\#
-\#A multi-line macro cannot be referenced within itself, in order to
-\#prevent accidental infinite recursion.
-\#
-\#Recursive multi-line macros allow for self-referencing, with the
-\#caveat that the user is aware of the existence, use and purpose of
-\#recursive multi-line macros. There is also a generous, but sane, upper
-\#limit to the number of recursions, in order to prevent run-away memory
-\#consumption in case of accidental infinite recursion.
-\#
-\#As with non-recursive multi-line macros, recursive multi-line macros are
-\#\i{case-sensitive}, unless you define them using the alternative
-\#directive \c{%irmacro}.
-
 \S{mlmacover} Overloading Multi-Line Macros\I{overloading, multi-line macros}
 
 As with single-line macros, multi-line macros can be overloaded by
@@ -2546,6 +2555,48 @@ definition.
 
 See \k{sectmac} for a better way to write the above macro.
 
+\S{mlmacrange} \i{Macro Parameters Range}
+
+NASM allows you to expand parameters via special construction \c{%\{x:y\}}
+where \c{x} is the first parameter index and \c{y} is the last. Any index can
+be either negative or positive but must never be zero.
+
+For example
+
+\c %macro mpar 1-*
+\c      db %{3:5}
+\c %endmacro
+\c
+\c mpar 1,2,3,4,5,6
+
+expands to \c{3,4,5} range.
+
+Even more, the parameters can be reversed so that
+
+\c %macro mpar 1-*
+\c      db %{5:3}
+\c %endmacro
+\c
+\c mpar 1,2,3,4,5,6
+
+expands to \c{5,4,3} range.
+
+But even this is not the last. The parameters can be addressed via negative
+indices so NASM will count them reversed. The ones who know Python may see
+the analogue here.
+
+\c %macro mpar 1-*
+\c      db %{-1:-3}
+\c %endmacro
+\c
+\c mpar 1,2,3,4,5,6
+
+expands to \c{6,5,4} range.
+
+Note that NASM uses \i{comma} to separate parameters being expanded.
+
+By the way, here is a trick - you might use the index \c{%{-1:-1}}
+which gives you the \i{last} argument passed to a macro.
 
 \S{mlmacdef} \i{Default Macro Parameters}
 
@@ -2617,6 +2668,13 @@ last parameter. \c{%0} is mostly useful for macros that can take a variable
 number of parameters. It can be used as an argument to \c{%rep}
 (see \k{rep}) in order to iterate through all the parameters of a macro.
 Examples are given in \k{rotate}.
+
+
+\S{percent00} \i\c{%00}: \I{label preceeding macro}Label Preceeding Macro
+
+\c{%00} will return the label preceeding the macro invocation, if any. The
+label must be on the same line as the macro invocation, may be a local label
+(see \k{locallab}), and need not end in a colon.
 
 
 \S{rotate} \i\c{%rotate}: \i{Rotating Macro Parameters}
@@ -2825,21 +2883,6 @@ removes the previously defined macro \c{foo}, but
 does \e{not} remove the macro \c{bar}, since the argument
 specification does not match exactly.
 
-
-\#\S{exitmacro} Exiting Multi-Line Macros: \i\c{%exitmacro}
-\#
-\#Multi-line macro expansions can be arbitrarily terminated with
-\#the \c{%exitmacro} directive.
-\#
-\#For example:
-\#
-\#\c %macro foo 1-3
-\#\c         ; Do something
-\#\c     %if<condition>
-\#\c         %exitmacro
-\#\c     %endif
-\#\c         ; Do something
-\#\c %endmacro
 
 \H{condasm} \i{Conditional Assembly}\I\c{%if}
 
@@ -3095,6 +3138,19 @@ any tokens at all, whitespace excepted.
 The usual \i\c{%elifempty}, \i\c\{%ifnempty}, and \i\c{%elifnempty}
 variants are also provided.
 
+\S{ifenv} \i\c{%ifenv}: Test If Environment Variable Exists
+
+The conditional assembly construct \c{%ifenv} assembles the
+subsequent code if and only if the environment variable referenced by
+the \c{%!<env>} directive exists.
+
+The usual \i\c{%elifenv}, \i\c\{%ifnenv}, and \i\c{%elifnenv}
+variants are also provided.
+
+Just as for \c{%!<env>} the argument should be written as a string if
+it contains characters that would not be legal in an identifier.  See
+\k{getenv}.
+
 \H{rep} \i{Preprocessor Loops}\I{repeating code}: \i\c{%rep}
 
 NASM's \c{TIMES} prefix, though useful, cannot be used to invoke a
@@ -3142,6 +3198,9 @@ This produces a list of all the Fibonacci numbers that will fit in
 infinite loop in the preprocessor, which (on multitasking or
 multi-user systems) would typically cause all the system memory to
 be gradually used up and other applications to start crashing.
+
+Note a maximum repeat count is limited by 62 bit number, though it
+is hardly possible that you ever need anything bigger.
 
 
 \H{files} Source Files and Dependencies
@@ -3324,6 +3383,60 @@ a particular context, in just the same way:
 will define the single-line macro \c{%$localmac} to be local to the
 top context on the stack. Of course, after a subsequent \c{%push},
 it can then still be accessed by the name \c{%$$localmac}.
+
+
+\S{ctxfallthrough} \i{Context Fall-Through Lookup}
+
+Context fall-through lookup (automatic searching of outer contexts)
+is a feature that was added in NASM version 0.98.03. Unfortunately,
+this feature is unintuitive and can result in buggy code that would
+have otherwise been prevented by NASM's error reporting. As a result,
+this feature has been \e{deprecated}. NASM version 2.09 will issue a
+warning when usage of this \e{deprecated} feature is detected. Starting
+with NASM version 2.10, usage of this \e{deprecated} feature will simply
+result in an \e{expression syntax error}.
+
+An example usage of this \e{deprecated} feature follows:
+
+\c %macro ctxthru 0
+\c %push ctx1
+\c     %assign %$external 1
+\c         %push ctx2
+\c             %assign %$internal 1
+\c             mov eax, %$external
+\c             mov eax, %$internal
+\c         %pop
+\c %pop
+\c %endmacro
+
+As demonstrated, \c{%$external} is being defined in the \c{ctx1}
+context and referenced within the \c{ctx2} context. With context
+fall-through lookup, referencing an undefined context-local macro
+like this implicitly searches through all outer contexts until a match
+is made or isn't found in any context. As a result, \c{%$external}
+referenced within the \c{ctx2} context would implicitly use \c{%$external}
+as defined in \c{ctx1}. Most people would expect NASM to issue an error in
+this situation because \c{%$external} was never defined within \c{ctx2} and also
+isn't qualified with the proper context depth, \c{%$$external}.
+
+Here is a revision of the above example with proper context depth:
+
+\c %macro ctxthru 0
+\c %push ctx1
+\c     %assign %$external 1
+\c         %push ctx2
+\c             %assign %$internal 1
+\c             mov eax, %$$external
+\c             mov eax, %$internal
+\c         %pop
+\c %pop
+\c %endmacro
+
+As demonstrated, \c{%$external} is still being defined in the \c{ctx1}
+context and referenced within the \c{ctx2} context. However, the
+reference to \c{%$external} within \c{ctx2} has been fully qualified with
+the proper context depth, \c{%$$external}, and thus is no longer ambiguous,
+unintuitive or erroneous.
 
 
 \S{ctxrepl} \i\c{%repl}: \I{renaming contexts}Renaming a Context
@@ -3651,9 +3764,26 @@ For example, suppose that you have an environment variable \c{FOO}, and
 you want the contents of \c{FOO} to be embedded in your program. You
 could do that as follows:
 
-\c %defstr FOO    %!FOO
+\c %defstr FOO          %!FOO
 
 See \k{defstr} for notes on the \c{%defstr} directive.
+
+If the name of the environment variable contains non-identifier
+characters, you can use string quotes to surround the name of the
+variable, for example:
+
+\c %defstr C_colon      %!'C:'
+
+
+\H{comment} Comment Blocks: \i\c{%comment}
+
+The \c{%comment} and \c{%endcomment} directives are used to specify
+a block of commented (i.e. unprocessed) code/text. Everything between
+\c{%comment} and \c{%endcomment} will be ignored by the preprocessor.
+
+\c %comment
+\c     ; some code, text or data to be ignored
+\c %endcomment
 
 
 \H{stdmac} \i{Standard Macros}
@@ -4022,7 +4152,35 @@ boundary, for example, is a waste of effort. Again, NASM does not
 check that the section's alignment characteristics are sensible for
 the use of \c{ALIGN} or \c{ALIGNB}.
 
+Both \c{ALIGN} and \c{ALIGNB} do call \c{SECTALIGN} macro implicitly.
+See \k{sectalign} for details.
+
 See also the \c{smartalign} standard macro package, \k{pkg_smartalign}.
+
+
+\S{sectalign} \i\c{SECTALIGN}: Section Alignment
+
+The \c{SECTALIGN} macros provides a way to modify alignment attribute
+of output file section. Unlike the \c{align=} attribute (which is allowed
+at section definition only) the \c{SECTALIGN} macro may be used at any time.
+
+For example the directive
+
+\c SECTALIGN 16
+
+sets the section alignment requirements to 16 bytes. Once increased it can
+not be decreased, the magnitude may grow only.
+
+Note that \c{ALIGN} (see \k{align}) calls the \c{SECTALIGN} macro implicitly
+so the active section alignment requirements may be updated. This is by default
+behaviour, if for some reason you want the \c{ALIGN} do not call \c{SECTALIGN}
+at all use the directive
+
+\c SECTALIGN OFF
+
+It is still possible to turn in on again by
+
+\c SECTALIGN ON
 
 
 \C{macropkg} \i{Standard Macro Packages}
@@ -4069,8 +4227,9 @@ sequence.
 
 The specific instructions generated can be controlled with the
 new \i\c{ALIGNMODE} macro.  This macro takes two parameters: one mode,
-and an optional jump threshold override.  The modes are as
-follows:
+and an optional jump threshold override. If (for any reason) you need
+to turn off the jump completely just set jump threshold value to -1
+(or set it to \c{nojmp}). The following modes are possible:
 
 \b \c{generic}: Works on all x86 CPUs and should have reasonable
 performance.  The default jump threshold is 8.  This is the
@@ -4096,6 +4255,25 @@ several virtualization solutions.  The default jump threshold is 16.
 The macro \i\c{__ALIGNMODE__} is defined to contain the current
 alignment mode.  A number of other macros beginning with \c{__ALIGN_}
 are used internally by this macro package.
+
+
+\H{pkg_fp} \i\c\{fp}: Floating-point macros
+
+This packages contains the following floating-point convenience macros:
+
+\c %define Inf             __Infinity__
+\c %define NaN             __QNaN__
+\c %define QNaN            __QNaN__
+\c %define SNaN            __SNaN__
+\c 
+\c %define float8(x)       __float8__(x)
+\c %define float16(x)      __float16__(x)
+\c %define float32(x)      __float32__(x)
+\c %define float64(x)      __float64__(x)
+\c %define float80m(x)     __float80m__(x)
+\c %define float80e(x)     __float80e__(x)
+\c %define float128l(x)    __float128l__(x)
+\c %define float128h(x)    __float128h__(x)
 
 
 \C{directive} \i{Assembler Directives}
@@ -5172,20 +5350,21 @@ While \c{REL} takes good care of RIP-relative addressing, there is one
 aspect that is easy to overlook for a Win64 programmer: indirect
 references. Consider a switch dispatch table:
 
-\c         jmp     QWORD[dsptch+rax*8]
+\c         jmp     qword [dsptch+rax*8]
 \c         ...
 \c dsptch: dq      case0
 \c         dq      case1
 \c         ...
 
-Even novice Win64 assembler programmer will soon realize that the code
+Even a novice Win64 assembler programmer will soon realize that the code
 is not 64-bit savvy. Most notably linker will refuse to link it with
-"\c{'ADDR32' relocation to '.text' invalid without
-/LARGEADDRESSAWARE:NO}". So [s]he will have to split jmp instruction as
-following:
+
+\c 'ADDR32' relocation to '.text' invalid without /LARGEADDRESSAWARE:NO
+
+So [s]he will have to split jmp instruction as following:
 
 \c         lea     rbx,[rel dsptch]
-\c         jmp     QWORD[rbx+rax*8]
+\c         jmp     qword [rbx+rax*8]
 
 What happens behind the scene is that effective address in \c{lea} is
 encoded relative to instruction pointer, or in perfectly
@@ -5198,7 +5377,7 @@ to current process, which kind of undermines the idea of sharing .dll.
 But no worry, it's trivial to fix:
 
 \c         lea     rbx,[rel dsptch]
-\c         add     rbx,QWORD[rbx+rax*8]
+\c         add     rbx,[rbx+rax*8]
 \c         jmp     rbx
 \c         ...
 \c dsptch: dq      case0-dsptch
@@ -5213,7 +5392,7 @@ acquainted with PE-COFF format base address denotes start of
 these image-relative references:
 
 \c         lea     rbx,[rel dsptch]
-\c         mov     eax,DWORD[rbx+rax*4]
+\c         mov     eax,[rbx+rax*4]
 \c         sub     rbx,dsptch wrt ..imagebase
 \c         add     rbx,rax
 \c         jmp     rbx
@@ -5429,13 +5608,17 @@ object files suitable for linking with the \i{MacOS X} linker.
 
 \c{macho} provides a default output file-name extension of \c{.o}.
 
-\H{elffmt} \i\c{elf32} and \i\c{elf64}: \I{ELF}\I{linux, elf}\i{Executable and Linkable
+\H{elffmt} \i\c{elf32}, \i\c{elf64}, \i\c{elfx32}: \I{ELF}\I{linux, elf}\i{Executable and Linkable
 Format} Object Files
 
-The \c{elf32} and \c{elf64} output formats generate \c{ELF32 and ELF64} (Executable and Linkable Format) object files, as used by Linux as well as \i{Unix System V},
-including \i{Solaris x86}, \i{UnixWare} and \i{SCO Unix}. \c{elf}
-provides a default output file-name extension of \c{.o}.
-\c{elf} is a synonym for \c{elf32}.
+The \c{elf32}, \c{elf64} and \c{elfx32} output formats generate
+\c{ELF32 and ELF64} (Executable and Linkable Format) object files, as
+used by Linux as well as \i{Unix System V}, including \i{Solaris x86},
+\i{UnixWare} and \i{SCO Unix}. \c{elf} provides a default output
+file-name extension of \c{.o}.  \c{elf} is a synonym for \c{elf32}.
+
+The \c{elfx32} format is used for the \i{x32} ABI, which is a 32-bit
+ABI with the CPU in 64-bit mode.
 
 \S{abisect} ELF specific directive \i\c{osabi}
 
@@ -5573,7 +5756,7 @@ of the symbol with code such as:
 \c 	  mov  [gs:eax],ebx
 
 
-\b In ELF64 mode, referring to an external or global symbol using
+\b In ELF64 or ELFx32 mode, referring to an external or global symbol using
 \c{wrt ..gottpoff} \I\c{..gottpoff}
 causes the linker to build an entry \e{in} the GOT containing the
 offset of the symbol within the TLS block, so you can access the value
@@ -5659,7 +5842,7 @@ these relocations is generated.
 \S{elfdbg} Debug formats and ELF
 \I{ELF, Debug formats and}
 
-\c{ELF32} and \c{ELF64} provide debug information in \c{STABS} and \c{DWARF} formats.
+ELF provides debug information in \c{STABS} and \c{DWARF} formats.
 Line number information is generated for all executable sections, but please
 note that only the ".text" section is executable by default.
 
@@ -7163,7 +7346,7 @@ functions by means of
 
 will give the user the address of the code you wrote, whereas
 
-\c funcptr:        dd      my_function wrt .sym
+\c funcptr:        dd      my_function wrt ..sym
 
 will give the address of the procedure linkage table for the
 function, which is where the calling program will \e{believe} the
@@ -7476,7 +7659,7 @@ a zero-extended absolute displacement can access from 0 to 4 GB.
 
 On Unix, the 64-bit ABI is defined by the document:
 
-\W{http://www.x86-64.org/documentation/abi.pdf}\c{http://www.x86-64.org/documentation/abi.pdf}
+\W{http://www.nasm.us/links/unix64abi}\c{http://www.nasm.us/links/unix64abi}
 
 Although written for AT&T-syntax assembly, the concepts apply equally
 well for NASM-style assembly.  What follows is a simplified summary.
@@ -7508,7 +7691,7 @@ Integer and SSE register arguments are counted separately, so for the case of
 
 The Win64 ABI is described at:
 
-\W{http://msdn2.microsoft.com/en-gb/library/ms794533.aspx}\c{http://msdn2.microsoft.com/en-gb/library/ms794533.aspx}
+\W{http://www.nasm.us/links/win64abi}\c{http://www.nasm.us/links/win64abi}
 
 What follows is a simplified summary.
 
@@ -7647,8 +7830,8 @@ We have never yet released a version of NASM with any \e{known}
 bugs. That doesn't usually stop there being plenty we didn't know
 about, though. Any that you find should be reported firstly via the
 \i\c{bugtracker} at
-\W{https://sourceforge.net/projects/nasm/}\c{https://sourceforge.net/projects/nasm/}
-(click on "Bugs"), or if that fails then through one of the
+\W{http://www.nasm.us/}\c{http://www.nasm.us/}
+(click on "Bug Tracker"), or if that fails then through one of the
 contacts in \k{contact}.
 
 Please read \k{qstart} first, and don't report the bug if it's
@@ -7908,7 +8091,7 @@ There are no known bugs. However, any you find, with patches if
 possible, should be sent to
 \W{mailto:nasm-bugs@lists.sourceforge.net}\c{nasm-bugs@lists.sourceforge.net}, or to the
 developer's site at
-\W{https://sourceforge.net/projects/nasm/}\c{https://sourceforge.net/projects/nasm/}
+\W{http://www.nasm.us/}\c{http://www.nasm.us/}
 and we'll try to fix them. Feel free to send contributions and
 new features as well.
 

@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2010 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -60,8 +60,9 @@
 
 #ifdef OF_ELF64
 
-#define SOC(ln,aa) ln - line_base + (line_range * aa) + opcode_base
-
+/*
+ * Relocation types.
+ */
 struct Reloc {
     struct Reloc *next;
     int64_t address;            /* relative to _start_ of section */
@@ -106,7 +107,7 @@ static char *shstrtab;
 static int shstrtablen, shstrtabsize;
 
 static struct SAA *syms;
-static uint32_t nlocals, nglobs, ndebugs;
+static uint32_t nlocals, nglobs, ndebugs; /* Symbol counts */
 
 static int32_t def_seg;
 
@@ -142,14 +143,6 @@ static struct SAA *elf_build_symtab(int32_t *, int32_t *);
 static struct SAA *elf_build_reltab(uint64_t *, struct Reloc *);
 static void add_sectname(char *, char *);
 
-struct stabentry {
-    uint32_t n_strx;
-    uint8_t n_type;
-    uint8_t n_other;
-    uint16_t n_desc;
-    uint32_t n_value;
-};
-
 struct erel {
     int offset, info;
 };
@@ -162,11 +155,11 @@ struct symlininfo {
 };
 
 struct linelist {
-    struct symlininfo info;
-    int line;
-    char *filename;
     struct linelist *next;
     struct linelist *last;
+    struct symlininfo info;
+    char *filename;
+    int line;
 };
 
 struct sectlist {
@@ -247,7 +240,7 @@ static void elf_init(void)
     bsym = raa_init();
     strs = saa_init(1L);
     saa_wbytes(strs, "\0", 1L);
-    saa_wbytes(strs, elf_module, (int32_t)(strlen(elf_module) + 1));
+    saa_wbytes(strs, elf_module, strlen(elf_module)+1);
     strslen = 2 + strlen(elf_module);
     shstrtab = NULL;
     shstrtablen = shstrtabsize = 0;;
@@ -315,25 +308,21 @@ static int elf_make_section(char *name, int type, int flags, int align)
 {
     struct Section *s;
 
-    s = nasm_malloc(sizeof(*s));
+    s = nasm_zalloc(sizeof(*s));
 
     if (type != SHT_NOBITS)
         s->data = saa_init(1L);
-    s->head = NULL;
     s->tail = &s->head;
-    s->len = s->size = 0;
-    s->nrelocs = 0;
     if (!strcmp(name, ".text"))
         s->index = def_seg;
     else
         s->index = seg_alloc();
     add_sectname("", name);
-    s->name = nasm_malloc(1 + strlen(name));
-    strcpy(s->name, name);
-    s->type = type;
-    s->flags = flags;
-    s->align = align;
-    s->gsyms = NULL;
+
+    s->name     = nasm_strdup(name);
+    s->type     = type;
+    s->flags    = flags;
+    s->align    = align;
 
     if (nsects >= sectlen)
         sects = nasm_realloc(sects, (sectlen += SECT_DELTA) * sizeof(*sects));
@@ -362,53 +351,8 @@ static int32_t elf_section_names(char *name, int pass, int *bits)
         *p++ = '\0';
     flags_and = flags_or = type = align = 0;
 
-    p = nasm_skip_spaces(p);
-    while (*p) {
-        char *q = p;
-        p = nasm_skip_word(p);
-        if (*p)
-            *p++ = '\0';
-        p = nasm_skip_spaces(p);
-
-        if (!nasm_strnicmp(q, "align=", 6)) {
-            align = atoi(q + 6);
-            if (align == 0)
-                align = 1;
-            if ((align - 1) & align) {  /* means it's not a power of two */
-                nasm_error(ERR_NONFATAL, "section alignment %"PRId64" is not"
-                      " a power of two", align);
-                align = 1;
-            }
-        } else if (!nasm_stricmp(q, "alloc")) {
-            flags_and |= SHF_ALLOC;
-            flags_or |= SHF_ALLOC;
-        } else if (!nasm_stricmp(q, "noalloc")) {
-            flags_and |= SHF_ALLOC;
-            flags_or &= ~SHF_ALLOC;
-        } else if (!nasm_stricmp(q, "exec")) {
-            flags_and |= SHF_EXECINSTR;
-            flags_or |= SHF_EXECINSTR;
-        } else if (!nasm_stricmp(q, "noexec")) {
-            flags_and |= SHF_EXECINSTR;
-            flags_or &= ~SHF_EXECINSTR;
-        } else if (!nasm_stricmp(q, "write")) {
-            flags_and |= SHF_WRITE;
-            flags_or |= SHF_WRITE;
-        } else if (!nasm_stricmp(q, "tls")) {
-            flags_and |= SHF_TLS;
-            flags_or |= SHF_TLS;
-        } else if (!nasm_stricmp(q, "nowrite")) {
-            flags_and |= SHF_WRITE;
-            flags_or &= ~SHF_WRITE;
-        } else if (!nasm_stricmp(q, "progbits")) {
-            type = SHT_PROGBITS;
-        } else if (!nasm_stricmp(q, "nobits")) {
-            type = SHT_NOBITS;
-        } else if (pass == 1) {
-            nasm_error(ERR_WARNING, "Unknown section attribute '%s' ignored on"
-                  " declaration of section `%s'", q, name);
-        }
-    }
+    section_attrib(name, p, pass, &flags_and,
+                   &flags_or, &align, &type);
 
     if (!strcmp(name, ".shstrtab") ||
         !strcmp(name, ".symtab") ||
@@ -666,17 +610,15 @@ static void elf_add_reloc(struct Section *sect, int32_t segment,
                           int64_t offset, int type)
 {
     struct Reloc *r;
-    r = *sect->tail = nasm_malloc(sizeof(struct Reloc));
+
+    r = *sect->tail = nasm_zalloc(sizeof(struct Reloc));
     sect->tail = &r->next;
-    r->next = NULL;
 
     r->address = sect->len;
     r->offset = offset;
-    if (segment == NO_SEG)
-        r->symbol = 0;
-    else {
+
+    if (segment != NO_SEG) {
         int i;
-        r->symbol = 0;
         for (i = 0; i < nsects; i++)
             if (segment == sects[i]->index)
                 r->symbol = i + 2;
@@ -767,11 +709,10 @@ static void elf_out(int32_t segto, const void *data,
                     int32_t segment, int32_t wrt)
 {
     struct Section *s;
-    int64_t addr, zero;
+    int64_t addr;
+    int reltype, bytes;
     int i;
     static struct symlininfo sinfo;
-
-    zero = 0;
 
 #if defined(DEBUG) && DEBUG>2
     if (data)
@@ -809,7 +750,8 @@ static void elf_out(int32_t segto, const void *data,
             i = nsects - 1;
         }
     }
-    /* invoke current debug_output routine */
+
+    /* again some stabs debugging stuff */
     if (of_elf64.current_dfmt) {
         sinfo.offset = s->len;
         sinfo.section = i;
@@ -826,18 +768,23 @@ static void elf_out(int32_t segto, const void *data,
         return;
     }
 
-    if (type == OUT_RESERVE) {
+    switch (type) {
+    case OUT_RESERVE:
         if (s->type == SHT_PROGBITS) {
             nasm_error(ERR_WARNING, "uninitialized space declared in"
                   " non-BSS section `%s': zeroing", s->name);
             elf_sect_write(s, NULL, size);
         } else
             s->len += size;
-    } else if (type == OUT_RAWDATA) {
+	break;
+
+    case OUT_RAWDATA:
         if (segment != NO_SEG)
             nasm_error(ERR_PANIC, "OUT_RAWDATA with other than NO_SEG");
         elf_sect_write(s, data, size);
-    } else if (type == OUT_ADDRESS) {
+	break;
+
+    case OUT_ADDRESS:
         addr = *(int64_t *)data;
         if (segment == NO_SEG) {
             /* Do nothing */
@@ -932,10 +879,22 @@ static void elf_out(int32_t segto, const void *data,
             }
         }
         elf_sect_writeaddr(s, addr, size);
-    } else if (type == OUT_REL2ADR) {
+	break;
+
+    case OUT_REL1ADR:
+	reltype = R_X86_64_PC8;
+	bytes = 1;
+	goto rel12adr;
+
+    case OUT_REL2ADR:
+	reltype = R_X86_64_PC16;
+	bytes = 2;
+	goto rel12adr;
+
+    rel12adr:
         addr = *(int64_t *)data - size;
         if (segment == segto)
-            nasm_error(ERR_PANIC, "intra-segment OUT_REL2ADR");
+            nasm_error(ERR_PANIC, "intra-segment OUT_REL1ADR");
         if (segment == NO_SEG) {
             /* Do nothing */
         } else if (segment % 2) {
@@ -943,15 +902,17 @@ static void elf_out(int32_t segto, const void *data,
                   " segment base references");
         } else {
             if (wrt == NO_SEG) {
-                elf_add_reloc(s, segment, addr, R_X86_64_PC16);
+                elf_add_reloc(s, segment, addr, reltype);
                 addr = 0;
             } else {
                 nasm_error(ERR_NONFATAL,
-                      "Unsupported non-32-bit ELF relocation [2]");
+                      "Unsupported non-32-bit ELF relocation");
             }
         }
-        elf_sect_writeaddr(s, addr, 2);
-    } else if (type == OUT_REL4ADR) {
+        elf_sect_writeaddr(s, addr, bytes);
+	break;
+
+    case OUT_REL4ADR:
         addr = *(int64_t *)data - size;
         if (segment == segto)
             nasm_error(ERR_PANIC, "intra-segment OUT_REL4ADR");
@@ -987,7 +948,9 @@ static void elf_out(int32_t segto, const void *data,
             }
         }
         elf_sect_writeaddr(s, addr, 4);
-    } else if (type == OUT_REL8ADR) {
+	break;
+
+    case OUT_REL8ADR:
         addr = *(int64_t *)data - size;
         if (segment == segto)
             nasm_error(ERR_PANIC, "intra-segment OUT_REL8ADR");
@@ -1018,6 +981,7 @@ static void elf_out(int32_t segto, const void *data,
             }
         }
         elf_sect_writeaddr(s, addr, 8);
+	break;
     }
 }
 
@@ -1117,7 +1081,7 @@ static void elf_write(void)
      */
 
     elf_foffs = 0x40 + sizeof(Elf64_Shdr) * nsections;
-    align = ALIGN(elf_foffs, SEG_ALIGN) - elf_foffs;
+    align = ALIGN(elf_foffs, SEC_FILEALIGN) - elf_foffs;
     elf_foffs += align;
     elf_nsect = 0;
     elf_sects = nasm_malloc(sizeof(*elf_sects) * nsections);
@@ -1179,8 +1143,7 @@ static void elf_write(void)
                                stabrellen, symtabsection, sec_stab, 4, 16);
             p += strlen(p) + 1;
         }
-    }
-    else if (of_elf64.current_dfmt == &df_dwarf) {
+    } else if (of_elf64.current_dfmt == &df_dwarf) {
             /* for dwarf debugging information, create the ten dwarf sections */
 
             /* this function call creates the dwarf sections in memory */
@@ -1415,7 +1378,7 @@ static void elf_section_header(int name, int type, uint64_t flags,
     fwriteint64_t(type == 0 ? 0L : elf_foffs, ofile);
     fwriteint64_t(datalen, ofile);
     if (data)
-        elf_foffs += ALIGN(datalen, SEG_ALIGN);
+        elf_foffs += ALIGN(datalen, SEC_FILEALIGN);
     fwriteint32_t((int32_t)link, ofile);
     fwriteint32_t((int32_t)info, ofile);
     fwriteint64_t((int64_t)align, ofile);
@@ -1428,7 +1391,7 @@ static void elf_write_sections(void)
     for (i = 0; i < elf_nsect; i++)
         if (elf_sects[i].data) {
             int32_t len = elf_sects[i].len;
-            int32_t reallen = ALIGN(len, SEG_ALIGN);
+            int32_t reallen = ALIGN(len, SEC_FILEALIGN);
             int32_t align = reallen - len;
             if (elf_sects[i].is_saa)
                 saa_fpwrite(elf_sects[i].data, ofile);
@@ -1447,6 +1410,24 @@ static void elf_sect_writeaddr(struct Section *sect, int64_t data, size_t len)
 {
     saa_writeaddr(sect->data, data, len);
     sect->len += len;
+}
+
+static void elf_sectalign(int32_t seg, unsigned int value)
+{
+    struct Section *s = NULL;
+    int i;
+
+    for (i = 0; i < nsects; i++) {
+        if (sects[i]->index == seg) {
+            s = sects[i];
+            break;
+        }
+    }
+    if (!s || !is_power2(value))
+        return;
+
+    if (value > s->align)
+        s->align = value;
 }
 
 static int32_t elf_segbase(int32_t segment)
@@ -1545,6 +1526,7 @@ struct ofmt of_elf64 = {
     elf_out,
     elf_deflabel,
     elf_section_names,
+    elf_sectalign,
     elf_segbase,
     elf_directive,
     elf_filename,
@@ -1689,15 +1671,6 @@ static void stabs64_output(int type, void *param)
     debug_immcall = 0;
 }
 
-#define WRITE_STAB(p,n_strx,n_type,n_other,n_desc,n_value)  \
-    do {                                                    \
-        WRITELONG(p,n_strx);                                \
-        WRITECHAR(p,n_type);                                \
-        WRITECHAR(p,n_other);                               \
-        WRITESHORT(p,n_desc);                               \
-        WRITELONG(p,n_value);                               \
-    } while (0)
-
 /* for creating the .stab , .stabstr and .rel.stab sections in memory */
 
 static void stabs64_generate(void)
@@ -1711,9 +1684,7 @@ static void stabs64_generate(void)
 
     ptr = stabslines;
 
-    allfiles = (char **)nasm_malloc(numlinestabs * sizeof(char *));
-    for (i = 0; i < numlinestabs; i++)
-        allfiles[i] = 0;
+    allfiles = (char **)nasm_zalloc(numlinestabs * sizeof(char *));
     numfiles = 0;
     while (ptr) {
         if (numfiles == 0) {
