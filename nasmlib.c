@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -90,7 +90,12 @@ void nasm_init_malloc_error(void)
 {
 #ifdef LOGALLOC
     logfp = fopen("malloc.log", "w");
-    setvbuf(logfp, NULL, _IOLBF, BUFSIZ);
+    if (logfp) {
+        setvbuf(logfp, NULL, _IOLBF, BUFSIZ);
+    } else {
+        nasm_error(ERR_NONFATAL | ERR_NOFILE, "Unable to open %s", logfp);
+        logfp = stderr;
+    }
     fprintf(logfp, "null pointer is %p\n", NULL);
 #endif
 }
@@ -286,8 +291,7 @@ char *nasm_strsep(char **stringp, const char *delim)
 #endif
 
 
-#define lib_isnumchar(c)   (nasm_isalnum(c) || (c) == '$' || (c) == '_')
-#define numvalue(c)  ((c)>='a' ? (c)-'a'+10 : (c)>='A' ? (c)-'A'+10 : (c)-'0')
+#define lib_isnumchar(c)    (nasm_isalnum(c) || (c) == '$' || (c) == '_')
 
 static int radix_letter(char c)
 {
@@ -559,13 +563,14 @@ void standard_extension(char *inname, char *outname, char *extension)
  */
 static const char *prefix_names[] = {
     "a16", "a32", "a64", "asp", "lock", "o16", "o32", "o64", "osp",
-    "rep", "repe", "repne", "repnz", "repz", "times", "wait"
+    "rep", "repe", "repne", "repnz", "repz", "times", "wait",
+    "xacquire", "xrelease"
 };
 
 const char *prefix_name(int token)
 {
     unsigned int prefix = token-PREFIX_ENUM_START;
-    if (prefix > elements(prefix_names))
+    if (prefix >= ARRAY_SIZE(prefix_names))
 	return NULL;
 
     return prefix_names[prefix];
@@ -690,40 +695,104 @@ char *nasm_zap_spaces_rev(char *p)
     return p;
 }
 
+/* zap leading and trailing spaces */
+char *nasm_trim_spaces(char *p)
+{
+    p = nasm_zap_spaces_fwd(p);
+    nasm_zap_spaces_fwd(nasm_skip_word(p));
+
+    return p;
+}
+
+/*
+ * return the word extracted from a stream
+ * or NULL if nothing left
+ */
+char *nasm_get_word(char *p, char **tail)
+{
+    char *word = nasm_skip_spaces(p);
+    char *next = nasm_skip_word(word);
+
+    if (word && *word) {
+        if (*next)
+            *next++ = '\0';
+    } else
+        word = next = NULL;
+
+    /* NOTE: the tail may start with spaces */
+    *tail = next;
+
+    return word;
+}
+
+/*
+ * Extract "opt=val" values from the stream and
+ * returns "opt"
+ *
+ * Exceptions:
+ * 1) If "=val" passed the NULL returned though
+ *    you may continue handling the tail via "next"
+ * 2) If "=" passed the NULL is returned and "val"
+ *    is set to NULL as well
+ */
+char *nasm_opt_val(char *p, char **val, char **next)
+{
+    char *q, *nxt;
+
+    *val = *next = NULL;
+
+    p = nasm_get_word(p, &nxt);
+    if (!p)
+        return NULL;
+
+    q = strchr(p, '=');
+    if (q) {
+        if (q == p)
+            p = NULL;
+        *q++='\0';
+        if (*q) {
+            *val = q;
+        } else {
+            q = nasm_get_word(q + 1, &nxt);
+            if (q)
+                *val = q;
+        }
+    } else {
+        q = nasm_skip_spaces(nxt);
+        if (q && *q == '=') {
+            q = nasm_get_word(q + 1, &nxt);
+            if (q)
+                *val = q;
+        }
+    }
+
+    *next = nxt;
+    return p;
+}
+
 /*
  * initialized data bytes length from opcode
  */
 int idata_bytes(int opcode)
 {
-    int ret;
     switch (opcode) {
     case I_DB:
-        ret = 1;
-        break;
+        return 1;
     case I_DW:
-        ret = 2;
-        break;
+        return 2;
     case I_DD:
-        ret = 4;
-        break;
+        return 4;
     case I_DQ:
-        ret = 8;
-        break;
+        return 8;
     case I_DT:
-        ret = 10;
-        break;
+        return 10;
     case I_DO:
-        ret = 16;
-        break;
+        return 16;
     case I_DY:
-        ret = 32;
-        break;
+        return 32;
     case I_none:
-        ret = -1;
-        break;
+        return -1;
     default:
-        ret = 0;
-        break;
+        return 0;
     }
-    return ret;
 }

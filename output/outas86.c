@@ -638,6 +638,7 @@ struct ofmt of_as86 = {
     as86_out,
     as86_deflabel,
     as86_section_names,
+    null_sectalign,
     as86_segbase,
     null_directive,
     as86_filename,

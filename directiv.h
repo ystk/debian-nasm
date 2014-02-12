@@ -1,13 +1,14 @@
 /*
- * This	 file is generated from directives.dat
- * by directives.pl; do not edit.
+ * This	 file is generated from directiv.dat
+ * by directiv.pl; do not edit.
  */
 
 #ifndef NASM_DIRECTIVES_H
 #define NASM_DIRECTIVES_H
 
 enum directives {
-    D_NONE,
+    D_none,
+    D_unknown,
     D_ABSOLUTE,
     D_BITS,
     D_COMMON,
@@ -21,6 +22,7 @@ enum directives {
     D_SECTION,
     D_SEGMENT,
     D_WARNING,
+    D_SECTALIGN,
     D_EXPORT,
     D_GROUP,
     D_IMPORT,
@@ -33,7 +35,7 @@ enum directives {
     D_UPPERCASE
 };
 
-extern const char * const directives[24];
+extern const char * const directives[26];
 enum directives find_directive(const char *token);
 
 #endif /* NASM_DIRECTIVES_H */

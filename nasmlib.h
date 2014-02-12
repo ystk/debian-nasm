@@ -116,8 +116,10 @@ void nasm_set_verror(vefunc);
 #define ERR_WARN_MASK   0xFFFFF000      /* the mask for this feature */
 #define ERR_WARN_SHR    12              /* how far to shift right */
 
-#define WARN(x) ((x) << ERR_WARN_SHR)
+#define WARN(x)         ((x) << ERR_WARN_SHR)
+#define WARN_IDX(x)     (((x) & ERR_WARN_MASK) >> ERR_WARN_SHR)
 
+#define ERR_WARN_TERM           WARN( 0) /* treat warnings as errors */
 #define ERR_WARN_MNP            WARN( 1) /* macro-num-parameters warning */
 #define ERR_WARN_MSR            WARN( 2) /* macro self-reference */
 #define ERR_WARN_MDP            WARN( 3) /* macro default parameters check */
@@ -130,7 +132,9 @@ void nasm_set_verror(vefunc);
 #define ERR_WARN_FL_UNDERFLOW   WARN( 9) /* FP underflow */
 #define ERR_WARN_FL_TOOLONG     WARN(10) /* FP too many digits */
 #define ERR_WARN_USER           WARN(11) /* %warning directives */
-#define ERR_WARN_MAX            11       /* the highest numbered one */
+#define ERR_WARN_LOCK		WARN(12) /* bad LOCK prefixes */
+#define ERR_WARN_HLE		WARN(13) /* bad HLE prefixes */
+#define ERR_WARN_MAX            13       /* the highest numbered one */
 
 /*
  * Wrappers around malloc, realloc and free. nasm_malloc will
@@ -205,6 +209,8 @@ int nasm_memicmp(const char *, const char *, size_t);
 char *nasm_strsep(char **stringp, const char *delim);
 #endif
 
+/* This returns the numeric value of a given 'digit'. */
+#define numvalue(c)         ((c) >= 'a' ? (c) - 'a' + 10 : (c) >= 'A' ? (c) - 'A' + 10 : (c) - '0')
 
 /*
  * Convert a string into a number, using NASM number rules. Sets
@@ -239,20 +245,36 @@ void standard_extension(char *inname, char *outname, char *extension);
  * This is a useful #define which I keep meaning to use more often:
  * the number of elements of a statically defined array.
  */
-
-#define elements(x)     ( sizeof(x) / sizeof(*(x)) )
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 /*
  * List handling
  *
  *  list_for_each - regular iterator over list
  *  list_for_each_safe - the same but safe against list items removal
+ *  list_last - find the last element in a list
  */
 #define list_for_each(pos, head)                        \
     for (pos = head; pos; pos = pos->next)
 #define list_for_each_safe(pos, n, head)                \
     for (pos = head, n = (pos ? pos->next : NULL); pos; \
         pos = n, n = (n ? n->next : NULL))
+#define list_last(pos, head)                            \
+    for (pos = head; pos && pos->next; pos = pos->next) \
+        ;
+#define list_reverse(head, prev, next)                  \
+    do {                                                \
+        if (!head || !head->next)                       \
+            break;                                      \
+        prev = NULL;                                    \
+        while (head) {                                  \
+            next = head->next;                          \
+            head->next = prev;                          \
+            prev = head;                                \
+            head = next;                                \
+        }                                               \
+        head = prev;                                    \
+    } while (0)
 
 /*
  * Power of 2 align helpers
@@ -393,6 +415,9 @@ char *nasm_skip_spaces(const char *p);
 char *nasm_skip_word(const char *p);
 char *nasm_zap_spaces_fwd(char *p);
 char *nasm_zap_spaces_rev(char *p);
+char *nasm_trim_spaces(char *p);
+char *nasm_get_word(char *p, char **tail);
+char *nasm_opt_val(char *p, char **opt, char **val);
 
 const char *prefix_name(int);
 
@@ -445,9 +470,31 @@ static inline bool overflow_unsigned(int64_t value, int bytes)
     return value < vmin || value > vmax;
 }
 
+static inline int64_t signed_bits(int64_t value, int bits)
+{
+    if (bits < 64) {
+        value &= ((int64_t)1 << bits) - 1;
+        if (value & (int64_t)1 << (bits - 1))
+            value |= (int64_t)-1 << bits;
+    }
+    return value;
+}
+
 int idata_bytes(int opcode);
 
 /* check if value is power of 2 */
 #define is_power2(v)   ((v) && ((v) & ((v) - 1)) == 0)
+
+/*
+ * floor(log2(v))
+ */
+int ilog2_32(uint32_t v);
+int ilog2_64(uint64_t v);
+
+/*
+ * v == 0 ? 0 : is_power2(x) ? ilog2_X(v) : -1
+ */
+int alignlog2_32(uint32_t v);
+int alignlog2_64(uint64_t v);
 
 #endif

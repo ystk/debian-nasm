@@ -1,3 +1,80 @@
+nasm (2.10.01-1) unstable; urgency=low
+
+  * New upstream version 2.10.01
+  * Enable hardened build flags
+  * DH compatibility level is 9
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Thu, 14 Jun 2012 11:13:09 +1000
+
+nasm (2.10-1) unstable; urgency=low
+
+  * New upstream version 2.10
+  * Ship nasmdoc.pdf
+    Closes: 439434
+  * Fix out-of-date-standards-version
+  * Fix spelling-error-in-doc-base-abstract-field
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Thu, 12 Apr 2012 08:00:57 +1000
+
+nasm (2.09.10-1) unstable; urgency=low
+
+  * New upstream version 2.09.10
+  * Fix debian-rules-missing-recommended-target
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Mon, 29 Aug 2011 12:41:12 +1000
+
+nasm (2.09.08-1) unstable; urgency=low
+
+  * New upstream
+  * Debian policy version is 3.9.2
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Wed, 13 Apr 2011 15:06:34 +1000
+
+nasm (2.09.07-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Wed, 23 Mar 2011 17:47:41 +1100
+
+nasm (2.09.06-1) unstable; urgency=low
+
+  * New upstream 
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Wed, 09 Mar 2011 21:26:17 +1100
+
+nasm (2.09.04-1) unstable; urgency=low
+
+  * New upstream 
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Fri, 26 Nov 2010 18:01:10 +1100
+
+nasm (2.09.02-1) unstable; urgency=low
+
+  * New upstream 
+  * Pass parameters -Zbzip2 and -z9 to dpkg-deb via dh_builddeb
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Fri, 15 Oct 2010 15:27:55 +1100
+
+nasm (2.09.01-1) unstable; urgency=low
+
+  * New upstream 
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Fri, 10 Sep 2010 20:24:27 +1000
+
+nasm (2.09-1) unstable; urgency=low
+
+  * New upstream 
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Sat, 04 Sep 2010 21:39:13 +1000
+
+nasm (2.08.02-1) unstable; urgency=low
+
+  * New upstream 
+    Closes: 589530
+  * Fix out-of-date-standards-version
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Tue, 24 Aug 2010 17:42:49 +1000
+
 nasm (2.08.01-1) unstable; urgency=low
 
   * New upstream 

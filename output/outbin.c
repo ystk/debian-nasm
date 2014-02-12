@@ -130,7 +130,7 @@ static struct Section {
 
     struct bin_label *labels;   /* linked-list of label handles for map output. */
     struct bin_label **labels_end;      /* Holds address of end of labels list. */
-    struct Section *ifollows;   /* Points to previous section (implicit follows). */
+    struct Section *prev;       /* Points to previous section (implicit follows). */
     struct Section *next;       /* This links sections with a defined start address. */
 
 /* The extended bin format allows for sections to have a "virtual"
@@ -152,8 +152,6 @@ static struct Reloc {
     struct Section *target;
 } *relocs, **reloctail;
 
-static uint8_t format_mode;       /* 0 = original bin, 1 = extended bin */
-static int32_t current_section;    /* only really needed if format_mode = 0 */
 static uint64_t origin;
 static int origin_defined;
 
@@ -203,24 +201,22 @@ static struct Section *find_section_by_index(int32_t index)
 }
 
 static struct Section *create_section(char *name)
-{                               /* Create a new section. */
-    last_section->next = nasm_malloc(sizeof(struct Section));
-    last_section->next->ifollows = last_section;
-    last_section = last_section->next;
-    last_section->labels = NULL;
-    last_section->labels_end = &(last_section->labels);
+{
+    struct Section *s = nasm_zalloc(sizeof(*s));
 
-    /* Initialize section attributes. */
-    last_section->name = nasm_strdup(name);
-    last_section->contents = saa_init(1L);
-    last_section->follows = last_section->vfollows = 0;
-    last_section->length = 0;
-    last_section->flags = 0;
-    last_section->next = NULL;
+    s->prev         = last_section;
+    s->name         = nasm_strdup(name);
+    s->labels_end   = &(s->labels);
+    s->contents     = saa_init(1L);
 
     /* Register our sections with NASM. */
-    last_section->vstart_index = seg_alloc();
-    last_section->start_index = seg_alloc();
+    s->vstart_index = seg_alloc();
+    s->start_index  = seg_alloc();
+
+    /* FIXME: Append to a tail, we need some helper */
+    last_section->next = s;
+    last_section = s;
+
     return last_section;
 }
 
@@ -487,9 +483,9 @@ static void bin_cleanup(int debuginfo)
                     nasm_error(ERR_FATAL|ERR_NOFILE,
                           "section %s vfollows unknown section (%s)",
                           g->name, g->vfollows);
-            } else if (g->ifollows != NULL)
-                for (s = sections; s && (s != g->ifollows); s = s->next) ;
-            /* The .bss section is the only one with ifollows = NULL.
+            } else if (g->prev != NULL)
+                for (s = sections; s && (s != g->prev); s = s->next) ;
+            /* The .bss section is the only one with prev = NULL.
 	       In this case we implicitly follow the last progbits
 	       section.  */
             else
@@ -540,26 +536,17 @@ static void bin_cleanup(int debuginfo)
         saa_rewind(s->contents);
     /* Apply relocations. */
     list_for_each(r, relocs) {
-        uint8_t *p, *q, mydata[8];
+        uint8_t *p, mydata[8];
         int64_t l;
+        int b;
+
+        nasm_assert(r->bytes <= 8);
 
         saa_fread(r->target->contents, r->posn, mydata, r->bytes);
-        p = q = mydata;
-        l = *p++;
-
-        if (r->bytes > 1) {
-            l += ((int64_t)*p++) << 8;
-            if (r->bytes >= 4) {
-                l += ((int64_t)*p++) << 16;
-                l += ((int64_t)*p++) << 24;
-            }
-            if (r->bytes == 8) {
-                l += ((int64_t)*p++) << 32;
-                l += ((int64_t)*p++) << 40;
-                l += ((int64_t)*p++) << 48;
-                l += ((int64_t)*p++) << 56;
-            }
-        }
+        p = mydata;
+        l = 0;
+        for (b = r->bytes - 1; b >= 0; b--)
+            l = (l << 8) + mydata[b];
 
         s = find_section_by_index(r->secref);
         if (s) {
@@ -576,12 +563,7 @@ static void bin_cleanup(int debuginfo)
                 l -= s->vstart;
         }
 
-        if (r->bytes >= 4)
-            WRITEDLONG(q, l);
-        else if (r->bytes == 2)
-            WRITESHORT(q, l);
-        else
-            *q++ = (uint8_t)(l & 0xFF);
+        WRITEADDR(p, l, r->bytes);
         saa_fwrite(r->target->contents, r->posn, mydata, r->bytes);
     }
 
@@ -778,7 +760,8 @@ static void bin_out(int32_t segto, const void *data,
         nasm_error(ERR_WARNING, "attempt to initialize memory in a"
               " nobits section: ignored");
 
-    if (type == OUT_ADDRESS) {
+    switch (type) {
+    case OUT_ADDRESS:
         if (segment != NO_SEG && !find_section_by_index(segment)) {
             if (segment % 2)
                 nasm_error(ERR_NONFATAL, "binary output format does not support"
@@ -795,20 +778,26 @@ static void bin_out(int32_t segto, const void *data,
 	    WRITEADDR(p, *(int64_t *)data, size);
             saa_wbytes(s->contents, mydata, size);
         }
-        s->length += size;
-    } else if (type == OUT_RAWDATA) {
+	break;
+
+    case OUT_RAWDATA:
         if (s->flags & TYPE_PROGBITS)
             saa_wbytes(s->contents, data, size);
-        s->length += size;
-    } else if (type == OUT_RESERVE) {
+	break;
+
+    case OUT_RESERVE:
         if (s->flags & TYPE_PROGBITS) {
             nasm_error(ERR_WARNING, "uninitialized space declared in"
                   " %s section: zeroing", s->name);
             saa_wbytes(s->contents, NULL, size);
         }
-        s->length += size;
-    } else if (type == OUT_REL2ADR || type == OUT_REL4ADR ||
-	       type == OUT_REL8ADR) {
+	break;
+
+    case OUT_REL1ADR:
+    case OUT_REL2ADR:
+    case OUT_REL4ADR:
+    case OUT_REL8ADR:
+    {
 	int64_t addr = *(int64_t *)data - size;
 	size = realsize(type, size);
         if (segment != NO_SEG && !find_section_by_index(segment)) {
@@ -826,8 +815,15 @@ static void bin_out(int32_t segto, const void *data,
 	    WRITEADDR(p, addr - s->length, size);
             saa_wbytes(s->contents, mydata, size);
         }
-        s->length += size;
+	break;
     }
+
+    default:
+	nasm_error(ERR_NONFATAL, "unsupported relocation type %d\n", type);
+	break;
+    }
+
+    s->length += size;
 }
 
 static void bin_deflabel(char *name, int32_t segment, int64_t offset,
@@ -889,7 +885,7 @@ static int bin_read_attribute(char **line, int *attribute,
     if (!nasm_strnicmp(*line, "align=", 6)) {
         *attribute = ATTRIB_ALIGN;
         attrib_name_size = 6;
-    } else if (format_mode) {
+    } else {
         if (!nasm_strnicmp(*line, "start=", 6)) {
             *attribute = ATTRIB_START;
             attrib_name_size = 6;
@@ -919,8 +915,7 @@ static int bin_read_attribute(char **line, int *attribute,
             return 1;
         } else
             return 0;
-    } else
-        return 0;
+    }
 
     /* Find the end of the expression. */
     if ((*line)[attrib_name_size] != '(') {
@@ -999,6 +994,20 @@ static int bin_read_attribute(char **line, int *attribute,
     return 1;
 }
 
+static void bin_sectalign(int32_t seg, unsigned int value)
+{
+    struct Section *s = find_section_by_index(seg);
+
+    if (!s || !is_power2(value))
+        return;
+
+    if (value > s->align)
+        s->align = value;
+
+    if (!(s->flags & ALIGN_DEFINED))
+        s->flags |= ALIGN_DEFINED;
+}
+
 static void bin_assign_attributes(struct Section *sec, char *astring)
 {
     int attribute, check;
@@ -1050,29 +1059,24 @@ static void bin_assign_attributes(struct Section *sec, char *astring)
 
             /* Handle align attribute. */
         case ATTRIB_ALIGN:
-            if (!format_mode && (!strcmp(sec->name, ".text")))
-                nasm_error(ERR_NONFATAL, "cannot specify an alignment"
-                      " to the .text section");
-            else {
-                if (!value || ((value - 1) & value))
-                    nasm_error(ERR_NONFATAL, "argument to `align' is not a"
-                          " power of two");
-                else {          /* Alignment is already satisfied if the previous
-                                 * align value is greater. */
-                    if ((sec->flags & ALIGN_DEFINED)
-                        && (value < sec->align))
-                        value = sec->align;
+            if (!value || ((value - 1) & value)) {
+                nasm_error(ERR_NONFATAL,
+                           "argument to `align' is not a power of two");
+            } else {
+                /*
+                 * Alignment is already satisfied if
+                 * the previous align value is greater
+                 */
+                if ((sec->flags & ALIGN_DEFINED) && (value < sec->align))
+                    value = sec->align;
 
-                    /* Don't allow a conflicting align value. */
-                    if ((sec->flags & START_DEFINED)
-                        && (sec->start & (value - 1)))
-                        nasm_error(ERR_NONFATAL,
-                              "`align' value conflicts "
-                              "with section start address");
-                    else {
-                        sec->align = value;
-                        sec->flags |= ALIGN_DEFINED;
-                    }
+                /* Don't allow a conflicting align value. */
+                if ((sec->flags & START_DEFINED) && (sec->start & (value - 1))) {
+                    nasm_error(ERR_NONFATAL,
+                              "`align' value conflicts with section start address");
+                } else {
+                    sec->align  = value;
+                    sec->flags |= ALIGN_DEFINED;
                 }
             }
             continue;
@@ -1228,15 +1232,14 @@ static int32_t bin_secname(char *name, int pass, int *bits)
                             ALIGN_DEFINED | VALIGN_DEFINED);
 
         /* Define section start and vstart labels. */
-        if (format_mode && (pass != 1))
+        if (pass != 1)
             bin_define_section_labels();
 
         /* Establish the default (.text) section. */
         *bits = 16;
         sec = find_section_by_name(".text");
         sec->flags |= TYPE_DEFINED | TYPE_PROGBITS;
-        current_section = sec->vstart_index;
-        return current_section;
+        return sec->vstart_index;
     }
 
     /* Attempt to find the requested section.  If it does not
@@ -1253,11 +1256,7 @@ static int32_t bin_secname(char *name, int pass, int *bits)
             sec->flags |= TYPE_DEFINED | TYPE_PROGBITS;
         else if (!strcmp(name, ".bss")) {
             sec->flags |= TYPE_DEFINED | TYPE_NOBITS;
-            sec->ifollows = NULL;
-        } else if (!format_mode) {
-            nasm_error(ERR_NONFATAL, "section name must be "
-                  ".text, .data, or .bss");
-            return current_section;
+            sec->prev = NULL;
         }
     }
 
@@ -1273,9 +1272,7 @@ static int32_t bin_secname(char *name, int pass, int *bits)
         sec->flags |= TYPE_DEFINED | TYPE_PROGBITS;
 #endif
 
-    /* Set the current section and return. */
-    current_section = sec->vstart_index;
-    return current_section;
+    return sec->vstart_index;
 }
 
 static int bin_directive(enum directives directive, char *args, int pass)
@@ -1428,22 +1425,15 @@ static void binfmt_init(void)
     origin_defined = 0;
     no_seg_labels = NULL;
     nsl_tail = &no_seg_labels;
-    format_mode = 1;            /* Extended bin format
-                                 * (set this to zero for old bin format). */
 
     /* Create default section (.text). */
-    sections = last_section = nasm_malloc(sizeof(struct Section));
-    last_section->next = NULL;
-    last_section->name = nasm_strdup(".text");
-    last_section->contents = saa_init(1L);
-    last_section->follows = last_section->vfollows = 0;
-    last_section->ifollows = NULL;
-    last_section->length = 0;
-    last_section->flags = TYPE_DEFINED | TYPE_PROGBITS;
-    last_section->labels = NULL;
-    last_section->labels_end = &(last_section->labels);
-    last_section->start_index = seg_alloc();
-    last_section->vstart_index = current_section = seg_alloc();
+    sections = last_section = nasm_zalloc(sizeof(struct Section));
+    last_section->name          = nasm_strdup(".text");
+    last_section->contents      = saa_init(1L);
+    last_section->flags         = TYPE_DEFINED | TYPE_PROGBITS;
+    last_section->labels_end    = &(last_section->labels);
+    last_section->start_index   = seg_alloc();
+    last_section->vstart_index  = seg_alloc();
 }
 
 /* Generate binary file output */
@@ -1672,6 +1662,7 @@ struct ofmt of_bin = {
     bin_out,
     bin_deflabel,
     bin_secname,
+    bin_sectalign,
     bin_segbase,
     bin_directive,
     bin_filename,
@@ -1690,6 +1681,7 @@ struct ofmt of_ith = {
     bin_out,
     bin_deflabel,
     bin_secname,
+    bin_sectalign,
     bin_segbase,
     bin_directive,
     ith_filename,
@@ -1708,6 +1700,7 @@ struct ofmt of_srec = {
     bin_out,
     bin_deflabel,
     bin_secname,
+    bin_sectalign,
     bin_segbase,
     bin_directive,
     srec_filename,

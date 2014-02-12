@@ -43,6 +43,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include <limits.h>
 
 #include "nasm.h"
 #include "nasmlib.h"
@@ -569,11 +570,15 @@ static struct ExtBack {
 
 static struct Segment {
     struct Segment *next;
+    char *name;
     int32_t index;                 /* the NASM segment id */
     int32_t obj_index;             /* the OBJ-file segment index */
     struct Group *grp;          /* the group it beint32_ts to */
     uint32_t currentpos;
     int32_t align;                 /* can be SEG_ABS + absolute addr */
+    struct Public *pubhead, **pubtail, *lochead, **loctail;
+    char *segclass, *overlay;   /* `class' is a C++ keyword :-) */
+    ObjRecord *orp;
     enum {
         CMB_PRIVATE = 0,
         CMB_PUBLIC = 2,
@@ -581,10 +586,6 @@ static struct Segment {
         CMB_COMMON = 6
     } combine;
     bool use32;                 /* is this segment 32-bit? */
-    struct Public *pubhead, **pubtail, *lochead, **loctail;
-    char *name;
-    char *segclass, *overlay;   /* `class' is a C++ keyword :-) */
-    ObjRecord *orp;
 } *seghead, **segtail, *obj_seg_needs_update;
 
 static struct Group {
@@ -992,7 +993,7 @@ static void obj_deflabel(char *name, int32_t segment,
     i = segment / 2;
     eb = ebhead;
     if (!eb) {
-        eb = *ebtail = nasm_malloc(sizeof(*eb));
+        eb = *ebtail = nasm_zalloc(sizeof(*eb));
         eb->next = NULL;
         ebtail = &eb->next;
     }
@@ -1000,7 +1001,7 @@ static void obj_deflabel(char *name, int32_t segment,
         if (eb && eb->next)
             eb = eb->next;
         else {
-            eb = *ebtail = nasm_malloc(sizeof(*eb));
+            eb = *ebtail = nasm_zalloc(sizeof(*eb));
             eb->next = NULL;
             ebtail = &eb->next;
         }
@@ -1060,7 +1061,8 @@ static void obj_out(int32_t segto, const void *data,
     orp = seg->orp;
     orp->parm[0] = seg->currentpos;
 
-    if (type == OUT_RAWDATA) {
+    switch (type) {
+    case OUT_RAWDATA:
         ucdata = data;
         while (size > 0) {
             unsigned int len;
@@ -1074,8 +1076,14 @@ static void obj_out(int32_t segto, const void *data,
             ucdata += len;
             size -= len;
         }
-    } else if (type == OUT_ADDRESS || type == OUT_REL2ADR ||
-               type == OUT_REL4ADR) {
+	break;
+
+    case OUT_ADDRESS:
+    case OUT_REL1ADR:
+    case OUT_REL2ADR:
+    case OUT_REL4ADR:
+    case OUT_REL8ADR:
+    {
         int rsize;
 
         if (segment == NO_SEG && type != OUT_ADDRESS)
@@ -1084,18 +1092,31 @@ static void obj_out(int32_t segto, const void *data,
         if (segment >= SEG_ABS)
             nasm_error(ERR_NONFATAL, "far-absolute relocations not supported"
                   " by OBJ format");
+
         ldata = *(int64_t *)data;
-        if (type == OUT_REL2ADR) {
-            ldata += (size - 2);
-            size = 2;
-        } else if (type == OUT_REL4ADR) {
-            ldata += (size - 4);
-            size = 4;
+        if (type != OUT_ADDRESS) {
+            ldata += size;
+	    size = realsize(type, size);
+	    ldata -= size;
         }
-        if (size == 2)
+
+	if (size > UINT_MAX)
+	    size = 0;
+
+	switch ((unsigned int)size) {
+	default:
+	    nasm_error(ERR_NONFATAL, "OBJ format can only handle 16- or "
+		       "32-byte relocations");
+	    segment = NO_SEG;	/* Don't actually generate a relocation */
+	    break;
+	case 2:
             orp = obj_word(orp, ldata);
-        else
+	    break;
+	case 4:
             orp = obj_dword(orp, ldata);
+	    break;
+	}
+
         rsize = size;
         if (segment < SEG_ABS && (segment != NO_SEG && segment % 2) &&
             size == 4) {
@@ -1116,10 +1137,19 @@ static void obj_out(int32_t segto, const void *data,
                             (type == OUT_ADDRESS ? 0x4000 : 0),
                             segment, wrt, seg);
         seg->currentpos += size;
-    } else if (type == OUT_RESERVE) {
+	break;
+    }
+
+    default:
+	nasm_error(ERR_NONFATAL,
+		   "Relocation type not supported by output format");
+	/* fall through */
+
+    case OUT_RESERVE:
         if (orp->committed)
             orp = obj_bump(orp);
         seg->currentpos += size;
+	break;
     }
     obj_commit(orp);
 }
@@ -1137,9 +1167,9 @@ static void obj_write_fixup(ObjRecord * orp, int bytes,
     struct External *e = NULL;
     ObjRecord *forp;
 
-    if (bytes == 1) {
+    if (bytes != 2 && bytes != 4) {
         nasm_error(ERR_NONFATAL, "`obj' output driver does not support"
-              " one-byte relocations");
+		   " %d-bit relocations", bytes << 3);
         return;
     }
 
@@ -1775,6 +1805,49 @@ static int obj_directive(enum directives directive, char *value, int pass)
     default:
 	return 0;
     }
+}
+
+static void obj_sectalign(int32_t seg, unsigned int value)
+{
+    struct Segment *s;
+
+    list_for_each(s, seghead) {
+        if (s->index == seg)
+            break;
+    }
+
+    /*
+     * it should not be too big value
+     * and applied on non-absolute sections
+     */
+    if (!s || !is_power2(value) ||
+        value > 4096 || s->align >= SEG_ABS)
+        return;
+
+    /*
+     * FIXME: No code duplication please
+     * consider making helper for this
+     * mapping since section handler has
+     * to do the same
+     */
+    switch (value) {
+    case 8:
+        value = 16;
+        break;
+    case 32:
+    case 64:
+    case 128:
+        value = 256;
+        break;
+    case 512:
+    case 1024:
+    case 2048:
+        value = 4096;
+        break;
+    }
+
+    if (s->align < (int)value)
+        s->align = value;
 }
 
 static int32_t obj_segbase(int32_t segment)
@@ -2559,6 +2632,7 @@ struct ofmt of_obj = {
     obj_out,
     obj_deflabel,
     obj_segment,
+    obj_sectalign,
     obj_segbase,
     obj_directive,
     obj_filename,

@@ -7,16 +7,205 @@
 The NASM 2 series support x86-64, and is the production version of NASM
 since 2007.
 
+\S{cl-2.10.01} Version 2.10.01
+
+\b Add missing VPMOVMSKB instruction with reg32, ymmreg operands.
+
+\S{cl-2.10} Version 2.10
+
+\b When optimization is enabled, \c{mov r64,imm} now optimizes to the
+  shortest form possible between:
+
+\c      mov r32,imm32                   ;  5 bytes
+\c      mov r64,imm32                   ;  7 bytes
+\c      mov r64,imm64                   ; 10 bytes
+
+To force a specific form, use the \c{STRICT} keyword, see \k{strict}.
+
+\b Add support for the Intel AVX2 instruction set.
+
+\b Add support for Bit Manipulation Instructions 1 and 2.
+
+\b Add support for Intel Transactional Synchronization Extensions (TSX).
+
+\b Add support for x32 ELF (32-bit ELF with the CPU in 64-bit mode.)
+   See \k{elffmt}.
+
+\b Add support for bigendian UTF-16 and UTF-32.  See \k{unicode}.
+
+\S{cl-2.09.10} Version 2.09.10
+
+\b Fix up NSIS script to protect uninstaller against registry keys
+   absence or corruption. It brings in a few additional questions
+   to a user during deinstallation procedure but still it is better
+   than unpredictable file removal.
+
+\S{cl-2.09.09} Version 2.09.09
+
+\b Fix initialization of section attributes of \c{bin} output format.
+
+\b Fix \c{mach64} output format bug that crashes NASM due to NULL symbols.
+
+
+\S{cl-2.09.08} Version 2.09.08
+
+\b Fix \c{__OUTPUT_FORMAT__} assignment when output driver alias
+   is used. For example when \c{-f elf} is used \c{__OUTPUT_FORMAT__}
+   must be set to \c{elf}, if \c{-f elf32} is used \c{__OUTPUT_FORMAT__}
+   must be assigned accordingly, i.e. to \c{elf32}. The rule applies to
+   all output driver aliases. See \k{ofmtm}.
+
+
+\S{cl-2.09.07} Version 2.09.07
+
+\b Fix attempts to close same file several times
+   when \c{-a} option is used.
+
+\b Fixes for VEXTRACTF128, VMASKMOVPS encoding.
+
+
+\S{cl-2.09.06} Version 2.09.06
+
+\b Fix missed section attribute initialization in \c{bin} output target.
+
+
+\S{cl-2.09.05} Version 2.09.05
+
+\b Fix arguments encoding for VPEXTRW instruction.
+
+\b Remove invalid form of VPEXTRW instruction.
+
+\b Add \c{VLDDQU} as alias for \c{VLDQQU} to
+   match specification.
+
+
+\S{cl-2.09.04} Version 2.09.04
+
+\b Fix incorrect labels offset for VEX intructions.
+
+\b Eliminate bogus warning on implicit operand size override.
+
+\b \c{%if} term could not handle 64 bit numbers.
+
+\b The COFF backend was limiting relocations number to 16 bits even if
+   in real there were a way more relocations.
+
+
+\S{cl-2.09.03} Version 2.09.03
+
+\b Print \c{%macro} name inside \c{%rep} blocks on error.
+
+\b Fix preprocessor expansion behaviour. It happened sometime
+   too early and sometime simply wrong. Move behaviour back to
+   the origins (down to NASM 2.05.01).
+
+\b Fix unitialized data dereference on OMF output format.
+
+\b Issue warning on unterminated \c{%{} construct.
+
+\b Fix for documentation typo.
+
+
+\S{cl-2.09.02} Version 2.09.02
+
+\b Fix reversed tokens when \c{%deftok} produces more than one output token.
+
+\b Fix segmentation fault on disassembling some VEX instructions.
+
+\b Missing \c{%endif} did not always cause error.
+
+\b Fix typo in documentation.
+
+\b Compound context local preprocessor single line macro identifiers
+  were not expanded early enough and as result lead to unresolved
+  symbols.
+
+
+\S{cl-2.09.01} Version 2.09.01
+
+\b Fix NULL dereference on missed %deftok second parameter.
+
+\b Fix NULL dereference on invalid %substr parameters.
+
+
+\S{cl-2.09} Version 2.09
+
+\b Fixed assignment the magnitude of \c{%rep} counter. It is limited
+  to 62 bits now.
+
+\b Fixed NULL dereference if argument of \c{%strlen} resolves
+  to whitespace. For example if nonexistent macro parameter is used.
+
+\b \c{%ifenv}, \c{%elifenv}, \c{%ifnenv}, and \c{%elifnenv} directives
+  introduced.  See \k{ifenv}.
+
+\b Fixed NULL dereference if environment variable is missed.
+
+\b Updates of new AVX v7 Intel instructions.
+
+\b \c{PUSH imm32} is now officially documented.
+
+\b Fix for encoding the LFS, LGS and LSS in 64-bit mode.
+
+\b Fixes for compatibility with OpenWatcom compiler and DOS 8.3 file
+  format limitation.
+
+\b Macros parameters range expansion introduced. See \k{mlmacrange}.
+
+\b Backward compatibility on expanging of local sigle macros restored.
+
+\b 8 bit relocations for \c{elf} and \c{bin} output formats are introduced.
+
+\b Short intersegment jumps are permitted now.
+
+\b An alignment more than 64 bytes are allowed for \c{win32},
+  \c{win64} output formats.
+
+\b \c{SECTALIGN} directive introduced. See \k{sectalign}.
+
+\b \c{nojmp} option introduced in \c{smartalign} package. See
+  \k{pkg_smartalign}.
+
+\b Short aliases \c{win}, \c{elf} and \c{macho} for output formats are
+  introduced.  Each stands for \c{win32}, \c{elf32} and \c{macho32}
+  accordingly.
+
+\b Faster handling of missing directives implemented.
+
+\b Various small improvements in documentation.
+
+\b No hang anymore if unable to open malloc.log file.
+
+\b The environments without vsnprintf function are able to build nasm again.
+
+\b AMD LWP instructions updated.
+
+\b Tighten EA checks. We warn a user if there overflow in EA addressing.
+
+\b Make \c{-Ox} the default optimization level.  For the legacy
+  behavior, specify \c{-O0} explicitly.  See \k{opt-O}.
+
+\b Environment variables read with \c{%!} or tested with \c{%ifenv}
+  can now contain non-identifier characters if surrounded by quotes.
+  See \k{getenv}.
+
+\b Add a new standard macro package \c{%use fp} for floating-point
+  convenience macros.  See \k{pkg_fp}.
+
+
+\S{cl-2.08.02} Version 2.08.02
+
+\b Fix crash under certain circumstances when using the \c{%+} operator.
+
+
+\S{cl-2.08.01} Version 2.08.01
+
+\b Fix the \c{%use} statement, which was broken in 2.08.
+
 
 \S{cl-2.08} Version 2.08
 
 \b A number of enhancements/fixes in macros area.
-
-\#\b Support for arbitrarily terminating macro expansions \c{%exitmacro}.
-\#  See \k{exitmacro}.
-
-\#\b Support for recursive macro expansion \c{%rmacro}/\c{%irmacro}.
-\#  See \k{mlrmacro}.
 
 \b Support for converting strings to tokens.  See \k{deftok}.
 

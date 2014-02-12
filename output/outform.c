@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2011 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -47,19 +47,33 @@
 #define BUILD_DRIVERS_ARRAY
 #include "output/outform.h"
 
-struct ofmt *ofmt_find(char *name)
-{                               /* find driver */
+struct ofmt *ofmt_find(char *name, struct ofmt_alias **ofmt_alias)
+{
     struct ofmt **ofp, *of;
+    unsigned int i;
 
+    *ofmt_alias = NULL;
+
+    /* primary targets first */
     for (ofp = drivers; (of = *ofp); ofp++) {
         if (!nasm_stricmp(name, of->shortname))
             return of;
     }
+
+    /* lets walk thru aliases then */
+    for (i = 0; i < ARRAY_SIZE(ofmt_aliases); i++) {
+        if (ofmt_aliases[i].shortname &&
+            !nasm_stricmp(name, ofmt_aliases[i].shortname)) {
+            *ofmt_alias = &ofmt_aliases[i];
+            return ofmt_aliases[i].ofmt;
+        }
+    }
+
     return NULL;
 }
 
 struct dfmt *dfmt_find(struct ofmt *ofmt, char *name)
-{                               /* find driver */
+{
     struct dfmt **dfp, *df;
 
     for (dfp = ofmt->debug_formats; (df = *dfp); dfp++) {
@@ -72,11 +86,22 @@ struct dfmt *dfmt_find(struct ofmt *ofmt, char *name)
 void ofmt_list(struct ofmt *deffmt, FILE * fp)
 {
     struct ofmt **ofp, *of;
+    unsigned int i;
 
+    /* primary targets first */
     for (ofp = drivers; (of = *ofp); ofp++) {
         fprintf(fp, "  %c %-10s%s\n",
                 of == deffmt ? '*' : ' ',
                 of->shortname, of->fullname);
+    }
+
+    /* lets walk through aliases then */
+    for (i = 0; i < ARRAY_SIZE(ofmt_aliases); i++) {
+        if (!ofmt_aliases[i].shortname)
+            continue;
+        fprintf(fp, "    %-10s%s\n",
+                ofmt_aliases[i].shortname,
+                ofmt_aliases[i].fullname);
     }
 }
 
