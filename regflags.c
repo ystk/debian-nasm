@@ -10,6 +10,10 @@ const opflags_t nasm_reg_flags[] = {
     REG_AX,         /* ax    */
     REG_HIGH,       /* bh    */
     REG8NA,         /* bl    */
+    BNDREG,         /* bnd0  */
+    BNDREG,         /* bnd1  */
+    BNDREG,         /* bnd2  */
+    BNDREG,         /* bnd3  */
     REG16NA,        /* bp    */
     REG8NA,         /* bpl   */
     REG16NA,        /* bx    */
@@ -53,7 +57,7 @@ const opflags_t nasm_reg_flags[] = {
     REG_DREG,       /* dr7   */
     REG_DREG,       /* dr8   */
     REG_DREG,       /* dr9   */
-    REG_DESS,       /* ds    */
+    REG_DS,         /* ds    */
     REG_DX,         /* dx    */
     REG_EAX,        /* eax   */
     REG32NA,        /* ebp   */
@@ -61,11 +65,19 @@ const opflags_t nasm_reg_flags[] = {
     REG_ECX,        /* ecx   */
     REG32NA,        /* edi   */
     REG_EDX,        /* edx   */
-    REG_DESS,       /* es    */
+    REG_ES,         /* es    */
     REG32NA,        /* esi   */
     REG32NA,        /* esp   */
-    REG_FSGS,       /* fs    */
-    REG_FSGS,       /* gs    */
+    REG_FS,         /* fs    */
+    REG_GS,         /* gs    */
+    OPMASK0,        /* k0    */
+    OPMASKREG,      /* k1    */
+    OPMASKREG,      /* k2    */
+    OPMASKREG,      /* k3    */
+    OPMASKREG,      /* k4    */
+    OPMASKREG,      /* k5    */
+    OPMASKREG,      /* k6    */
+    OPMASKREG,      /* k7    */
     MMXREG,         /* mm0   */
     MMXREG,         /* mm1   */
     MMXREG,         /* mm2   */
@@ -120,7 +132,7 @@ const opflags_t nasm_reg_flags[] = {
     REG8NA,         /* sil   */
     REG16NA,        /* sp    */
     REG8NA,         /* spl   */
-    REG_DESS,       /* ss    */
+    REG_SS,         /* ss    */
     FPU0,           /* st0   */
     FPUREG,         /* st1   */
     FPUREG,         /* st2   */
@@ -138,35 +150,99 @@ const opflags_t nasm_reg_flags[] = {
     REG_TREG,       /* tr6   */
     REG_TREG,       /* tr7   */
     XMM0,           /* xmm0  */
-    XMMREG,         /* xmm1  */
-    XMMREG,         /* xmm10 */
-    XMMREG,         /* xmm11 */
-    XMMREG,         /* xmm12 */
-    XMMREG,         /* xmm13 */
-    XMMREG,         /* xmm14 */
-    XMMREG,         /* xmm15 */
-    XMMREG,         /* xmm2  */
-    XMMREG,         /* xmm3  */
-    XMMREG,         /* xmm4  */
-    XMMREG,         /* xmm5  */
-    XMMREG,         /* xmm6  */
-    XMMREG,         /* xmm7  */
-    XMMREG,         /* xmm8  */
-    XMMREG,         /* xmm9  */
+    XMM_L16,        /* xmm1  */
+    XMM_L16,        /* xmm10 */
+    XMM_L16,        /* xmm11 */
+    XMM_L16,        /* xmm12 */
+    XMM_L16,        /* xmm13 */
+    XMM_L16,        /* xmm14 */
+    XMM_L16,        /* xmm15 */
+    XMMREG,         /* xmm16 */
+    XMMREG,         /* xmm17 */
+    XMMREG,         /* xmm18 */
+    XMMREG,         /* xmm19 */
+    XMM_L16,        /* xmm2  */
+    XMMREG,         /* xmm20 */
+    XMMREG,         /* xmm21 */
+    XMMREG,         /* xmm22 */
+    XMMREG,         /* xmm23 */
+    XMMREG,         /* xmm24 */
+    XMMREG,         /* xmm25 */
+    XMMREG,         /* xmm26 */
+    XMMREG,         /* xmm27 */
+    XMMREG,         /* xmm28 */
+    XMMREG,         /* xmm29 */
+    XMM_L16,        /* xmm3  */
+    XMMREG,         /* xmm30 */
+    XMMREG,         /* xmm31 */
+    XMM_L16,        /* xmm4  */
+    XMM_L16,        /* xmm5  */
+    XMM_L16,        /* xmm6  */
+    XMM_L16,        /* xmm7  */
+    XMM_L16,        /* xmm8  */
+    XMM_L16,        /* xmm9  */
     YMM0,           /* ymm0  */
-    YMMREG,         /* ymm1  */
-    YMMREG,         /* ymm10 */
-    YMMREG,         /* ymm11 */
-    YMMREG,         /* ymm12 */
-    YMMREG,         /* ymm13 */
-    YMMREG,         /* ymm14 */
-    YMMREG,         /* ymm15 */
-    YMMREG,         /* ymm2  */
-    YMMREG,         /* ymm3  */
-    YMMREG,         /* ymm4  */
-    YMMREG,         /* ymm5  */
-    YMMREG,         /* ymm6  */
-    YMMREG,         /* ymm7  */
-    YMMREG,         /* ymm8  */
-    YMMREG,         /* ymm9  */
+    YMM_L16,        /* ymm1  */
+    YMM_L16,        /* ymm10 */
+    YMM_L16,        /* ymm11 */
+    YMM_L16,        /* ymm12 */
+    YMM_L16,        /* ymm13 */
+    YMM_L16,        /* ymm14 */
+    YMM_L16,        /* ymm15 */
+    YMMREG,         /* ymm16 */
+    YMMREG,         /* ymm17 */
+    YMMREG,         /* ymm18 */
+    YMMREG,         /* ymm19 */
+    YMM_L16,        /* ymm2  */
+    YMMREG,         /* ymm20 */
+    YMMREG,         /* ymm21 */
+    YMMREG,         /* ymm22 */
+    YMMREG,         /* ymm23 */
+    YMMREG,         /* ymm24 */
+    YMMREG,         /* ymm25 */
+    YMMREG,         /* ymm26 */
+    YMMREG,         /* ymm27 */
+    YMMREG,         /* ymm28 */
+    YMMREG,         /* ymm29 */
+    YMM_L16,        /* ymm3  */
+    YMMREG,         /* ymm30 */
+    YMMREG,         /* ymm31 */
+    YMM_L16,        /* ymm4  */
+    YMM_L16,        /* ymm5  */
+    YMM_L16,        /* ymm6  */
+    YMM_L16,        /* ymm7  */
+    YMM_L16,        /* ymm8  */
+    YMM_L16,        /* ymm9  */
+    ZMM0,           /* zmm0  */
+    ZMM_L16,        /* zmm1  */
+    ZMM_L16,        /* zmm10 */
+    ZMM_L16,        /* zmm11 */
+    ZMM_L16,        /* zmm12 */
+    ZMM_L16,        /* zmm13 */
+    ZMM_L16,        /* zmm14 */
+    ZMM_L16,        /* zmm15 */
+    ZMMREG,         /* zmm16 */
+    ZMMREG,         /* zmm17 */
+    ZMMREG,         /* zmm18 */
+    ZMMREG,         /* zmm19 */
+    ZMM_L16,        /* zmm2  */
+    ZMMREG,         /* zmm20 */
+    ZMMREG,         /* zmm21 */
+    ZMMREG,         /* zmm22 */
+    ZMMREG,         /* zmm23 */
+    ZMMREG,         /* zmm24 */
+    ZMMREG,         /* zmm25 */
+    ZMMREG,         /* zmm26 */
+    ZMMREG,         /* zmm27 */
+    ZMMREG,         /* zmm28 */
+    ZMMREG,         /* zmm29 */
+    ZMM_L16,        /* zmm3  */
+    ZMMREG,         /* zmm30 */
+    ZMMREG,         /* zmm31 */
+    ZMM_L16,        /* zmm4  */
+    ZMM_L16,        /* zmm5  */
+    ZMM_L16,        /* zmm6  */
+    ZMM_L16,        /* zmm7  */
+    ZMM_L16,        /* zmm8  */
+    ZMM_L16,        /* zmm9  */
 };

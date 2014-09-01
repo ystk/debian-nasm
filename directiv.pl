@@ -35,7 +35,9 @@
 #
 # Generate a perfect hash for directive parsing
 #
-# Usage: directiv.pl directiv.dat directiv.c directiv.h
+# Usage:
+#      directiv.pl h directiv.dat directiv.h (to generate C header)
+#      directiv.pl c directiv.dat directiv.c (to generate C source)
 #
 
 require 'phash.ph';
@@ -122,7 +124,7 @@ if ($output eq 'h') {
     print C "#include \"directiv.h\"\n";
     print C "\n";
 
-    printf C "const char * const directives[%d] = \n",
+    printf C "const char * const directives[%d] =\n",
         scalar(@directives)+scalar(@specials);
     $c = '{';
     foreach $d (@specials) {

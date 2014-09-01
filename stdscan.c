@@ -105,6 +105,27 @@ static char *stdscan_copy(char *p, int len)
     return text;
 }
 
+/*
+ * a token is enclosed with braces. proper token type will be assigned
+ * accordingly with the token flag.
+ */
+static int stdscan_handle_brace(struct tokenval *tv)
+{
+    if (!(tv->t_flag & TFLAG_BRC_ANY)) {
+        /* invalid token is put inside braces */
+        nasm_error(ERR_NONFATAL,
+                    "%s is not a valid decorator with braces", tv->t_charptr);
+        tv->t_type = TOKEN_INVALID;
+    } else if (tv->t_flag & TFLAG_BRC_OPT) {
+        if (is_reg_class(OPMASKREG, tv->t_integer)) {
+            /* within braces, opmask register is now used as a mask */
+            tv->t_type = TOKEN_OPMASK;
+        }
+    }
+
+    return tv->t_type;
+}
+
 int stdscan(void *private_data, struct tokenval *tv)
 {
     char ourcopy[MAX_KEYWORD + 1], *r, *s;
@@ -120,6 +141,7 @@ int stdscan(void *private_data, struct tokenval *tv)
         (*stdscan_bufptr == '$' && isidstart(stdscan_bufptr[1]))) {
         /* now we've got an identifier */
         bool is_sym = false;
+        int token_type;
 
         if (*stdscan_bufptr == '$') {
             is_sym = true;
@@ -143,7 +165,14 @@ int stdscan(void *private_data, struct tokenval *tv)
         *r = '\0';
         /* right, so we have an identifier sitting in temp storage. now,
          * is it actually a register or instruction name, or what? */
-        return nasm_token_hash(ourcopy, tv);
+        token_type = nasm_token_hash(ourcopy, tv);
+
+        if (likely(!(tv->t_flag & TFLAG_BRC))) {
+            /* most of the tokens fall into this case */
+            return token_type;
+        } else {
+            return tv->t_type = TOKEN_ID;
+        }
     } else if (*stdscan_bufptr == '$' && !isnumchar(stdscan_bufptr[1])) {
         /*
          * It's a $ sign with no following hex number; this must
@@ -228,6 +257,45 @@ int stdscan(void *private_data, struct tokenval *tv)
             return tv->t_type = TOKEN_ERRSTR;
         stdscan_bufptr++;       /* Skip final quote */
         return tv->t_type = TOKEN_STR;
+    } else if (*stdscan_bufptr == '{') {
+        /* now we've got a decorator */
+        int token_len;
+
+        stdscan_bufptr = nasm_skip_spaces(stdscan_bufptr);
+
+        r = ++stdscan_bufptr;
+        /*
+         * read the entire buffer to advance the buffer pointer
+         * {rn-sae}, {rd-sae}, {ru-sae}, {rz-sae} contain '-' in tokens.
+         */
+        while (isbrcchar(*stdscan_bufptr))
+            stdscan_bufptr++;
+
+        token_len = stdscan_bufptr - r;
+
+        /* ... copy only up to DECOLEN_MAX-1 characters */
+        tv->t_charptr = stdscan_copy(r, token_len < DECOLEN_MAX ?
+                                        token_len : DECOLEN_MAX - 1);
+
+        stdscan_bufptr = nasm_skip_spaces(stdscan_bufptr);
+        /* if brace is not closed properly or token is too long  */
+        if ((*stdscan_bufptr != '}') || (token_len > MAX_KEYWORD)) {
+            nasm_error(ERR_NONFATAL,
+                       "invalid decorator token inside braces");
+            return tv->t_type = TOKEN_INVALID;
+        }
+
+        stdscan_bufptr++;       /* skip closing brace */
+
+        for (s = tv->t_charptr, r = ourcopy; *s; s++)
+            *r++ = nasm_tolower(*s);
+        *r = '\0';
+
+        /* right, so we have a decorator sitting in temp storage. */
+        nasm_token_hash(ourcopy, tv);
+
+        /* handle tokens inside braces */
+        return stdscan_handle_brace(tv);
     } else if (*stdscan_bufptr == ';') {
         /* a comment has happened - stay */
         return tv->t_type = TOKEN_EOS;

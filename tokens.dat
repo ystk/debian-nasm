@@ -1,6 +1,6 @@
 ## --------------------------------------------------------------------------
 ##   
-##   Copyright 1996-2012 The NASM Authors - All Rights Reserved
+##   Copyright 1996-2013 The NASM Authors - All Rights Reserved
 ##   See the file AUTHORS included with the NASM distribution for
 ##   the specific copyright holders.
 ##
@@ -35,7 +35,7 @@
 # Tokens other than instructions and registers
 #
 
-% TOKEN_PREFIX, 0, P_*
+% TOKEN_PREFIX, 0, 0, P_*
 a16
 a32
 a64
@@ -54,8 +54,10 @@ times
 wait
 xacquire
 xrelease
+bnd
+nobnd
 
-% TOKEN_SPECIAL, 0, S_*
+% TOKEN_SPECIAL, 0, 0, S_*
 abs
 byte
 dword
@@ -72,14 +74,15 @@ to
 tword
 word
 yword
+zword
 
-% TOKEN_FLOAT, 0, 0
+% TOKEN_FLOAT, 0, 0, 0
 __infinity__
 __nan__
 __qnan__
 __snan__
 
-% TOKEN_FLOATIZE, 0, FLOAT_{__float*__}
+% TOKEN_FLOATIZE, 0, 0, FLOAT_{__float*__}
 __float8__
 __float16__
 __float32__
@@ -89,7 +92,7 @@ __float80e__
 __float128l__
 __float128h__
 
-% TOKEN_STRFUNC, 0, STRFUNC_{__*__}
+% TOKEN_STRFUNC, 0, 0, STRFUNC_{__*__}
 __utf16__
 __utf16le__
 __utf16be__
@@ -97,6 +100,31 @@ __utf32__
 __utf32le__
 __utf32be__
 
-% TOKEN_*, 0, 0
+% TOKEN_IFUNC, 0, 0, IFUNC_{__*__}
+__ilog2e__
+__ilog2w__
+__ilog2f__
+__ilog2c__
+
+% TOKEN_*, 0, 0, 0
 seg
 wrt
+
+% TOKEN_DECORATOR, 0, TFLAG_BRC | TFLAG_BRDCAST , BRC_1TO{1to*}
+1to8
+1to16
+
+% TOKEN_DECORATOR, 0, TFLAG_BRC, BRC_{*-sae}
+rn-sae
+rd-sae
+ru-sae
+rz-sae
+
+% TOKEN_DECORATOR, 0, TFLAG_BRC, BRC_*
+sae
+z
+
+% TOKEN_PREFIX, 0, TFLAG_BRC, P_*
+evex
+vex3
+vex2
