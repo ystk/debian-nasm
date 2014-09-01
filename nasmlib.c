@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2013 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -564,7 +564,7 @@ void standard_extension(char *inname, char *outname, char *extension)
 static const char *prefix_names[] = {
     "a16", "a32", "a64", "asp", "lock", "o16", "o32", "o64", "osp",
     "rep", "repe", "repne", "repnz", "repz", "times", "wait",
-    "xacquire", "xrelease"
+    "xacquire", "xrelease", "bnd"
 };
 
 const char *prefix_name(int token)
@@ -790,6 +790,8 @@ int idata_bytes(int opcode)
         return 16;
     case I_DY:
         return 32;
+    case I_DZ:
+        return 64;
     case I_none:
         return -1;
     default:

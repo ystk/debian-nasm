@@ -4,8 +4,152 @@
 
 \H{cl-2.xx} NASM 2 Series
 
-The NASM 2 series support x86-64, and is the production version of NASM
+The NASM 2 series supports x86-64, and is the production version of NASM
 since 2007.
+
+\S{cl-2.11} Version 2.11
+
+\b Add support for the Intel AVX-512 instruction set:
+
+\b 16 new, 512-bit SIMD registers. Total 32 \c{(ZMM0 ~ ZMM31)}
+
+\b 8 new opmask registers \c{(K0 ~ K7)}. One of 7 registers \c{(K1 ~ K7)} can
+be used as an opmask for conditional execution.
+
+\b A new EVEX encoding prefix. EVEX is based on VEX and provides more
+capabilities: opmasks, broadcasting, embedded rounding and compressed
+displacements.
+
+\c  - opmask
+\c      VDIVPD zmm0{k1}{z}, zmm1, zmm3  ; conditional vector operation
+\c                                      ; using opmask k1.
+\c                                      ; {z} is for zero-masking
+\c  - broadcasting
+\c      VDIVPS zmm4, zmm5, [rbx]{1to16} ; load single-precision float and
+\c                                      ; replicate it 16 times. 32 * 16 = 512
+\c  - embedded rounding
+\c      VCVTSI2SD xmm6, xmm7, {rz-sae}, rax ; round toward zero. note that it
+\c                                       ; is used as if a separate operand.
+\c                                       ; it comes after the last SIMD operand
+
+\b Add support for \c{ZWORD} (512 bits), \c{DZ} and \c{RESZ}.
+
+\b Add support for the MPX and SHA instruction sets.
+
+\b Better handling of section redefinition.
+
+\b Generate manpages when running \c{'make dist'}.
+
+\b Handle all token chains in mmacro params range.
+
+\b Support split [base,index] effective address:
+
+\c      mov eax,[eax+8,ecx*4]   ; eax=base, ecx=index, 4=scale, 8=disp
+
+This is expected to be most useful for the MPX instructions.
+
+\b Support \c{BND} prefix for branch instructions (for MPX).
+
+\b The \c{DEFAULT} directive can now take \c{BND} and \c{NOBND}
+options to indicate whether all relevant branches should be getting
+\c{BND} prefixes.  This is expected to be the normal for use in MPX
+code.
+
+\b Add \c{{evex}}, \c{{vex3}} and \c{{vex2}} instruction prefixes to
+have NASM encode the corresponding instruction, if possible, with an EVEX,
+3-byte VEX, or 2-byte VEX prefix, respectively.
+
+\b Support for section names longer than 8 bytes in Win32/Win64 COFF.
+
+\b The \c{NOSPLIT} directive by itself no longer forces a single
+register to become an index register, unless it has an explicit
+multiplier.
+
+\c      mov eax,[nosplit eax]       ; eax as base register
+\c      mov eax,[nosplit eax*1]     ; eax as index register
+
+\S{cl-2.10.09} Version 2.10.09
+
+\b Pregenerate man pages.
+
+\S{cl-2.10.08} Version 2.10.08
+
+\b Fix \c{VMOVNTDQA}, \c{MOVNTDQA} and \c{MOVLPD} instructions.
+
+\b Fix collision for \c{VGATHERQPS}, \c{VPGATHERQD} instructions.
+
+\b Fix \c{VPMOVSXBQ}, \c{VGATHERQPD}, \c{VSPLLW} instructions.
+
+\b Add a bunch of AMD TBM instructions.
+
+\b Fix potential stack overwrite in numbers conversion.
+
+\b Allow byte size in \c{PREFETCHTx} instructions.
+
+\b Make manual pages up to date.
+
+\b Make \c{F3} and \c{F2} SSE prefixes to override \c{66}.
+
+\b Support of AMD SVM instructions in 32 bit mode.
+
+\b Fix near offsets code generation for \c{JMP}, \c{CALL} instrictions
+in long mode.
+
+\b Fix preprocessor parse regression when id is expanding to a whitespace.
+
+\S{cl-2.10.07} Version 2.10.07
+
+\b Fix line continuation parsing being broken in previous version.
+
+\S{cl-2.10.06} Version 2.10.06
+
+\b Always quote the dependency source names when using the automatic
+dependency generation options.
+
+\b If no dependency target name is specified via the \c{-MT} or
+\c{-MQ} options, quote the default output name.
+
+\b Fix assembly of shift operations in \c{CPU 8086} mode.
+
+\b Fix incorrect generation of explicit immediate byte for shift by 1
+under certain circumstances.
+
+\b Fix assembly of the \c{VPCMPGTQ} instruction.
+
+\b Fix RIP-relative relocations in the \c{macho64} backend.
+
+\S{cl-2.10.05} Version 2.10.05
+
+\b Add the \c{CLAC} and \c{STAC} instructions.
+
+\S{cl-2.10.04} Version 2.10.04
+
+\b Add back the inadvertently deleted 256-bit version of the \c{VORPD}
+instruction.
+
+\b Correct disassembly of instructions starting with byte \c{82} hex.
+
+\b Fix corner cases in token pasting, for example:
+
+\c    %define N 1e%++%+ 5
+\c            dd N, 1e+5
+
+\S{cl-2.10.03} Version 2.10.03
+
+\b Correct the assembly of the instruction:
+
+\c XRELEASE MOV [absolute],AL
+
+Previous versions would incorrectly generate \c{F3 A2} for this
+instruction and issue a warning; correct behavior is to emit \c{F3 88
+05}.
+
+\S{cl-2.10.02} Version 2.10.02
+
+\b Add the \c{ifunc} macro package with integer functions, currently
+only integer logarithms.  See \k{pkg_ifunc}.
+
+\b Add the \c{RDSEED}, \c{ADCX} and \c{ADOX} instructions.
 
 \S{cl-2.10.01} Version 2.10.01
 

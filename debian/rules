@@ -9,6 +9,9 @@ ifneq ($(findstring debug,$(DEB_BUILD_OPTIONS)),)
 CFLAGS += -g
 endif
 
+# The build system ignores CPPFLAGS, pass them through CFLAGS instead.
+CFLAGS += $(CPPFLAGS)
+
 clean:
 	dh_testdir
 	dh_testroot

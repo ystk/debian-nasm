@@ -213,6 +213,7 @@ enum pp_token_type {
 };
 
 #define PP_CONCAT_MASK(x) (1 << (x))
+#define PP_CONCAT_MATCH(t, mask) (PP_CONCAT_MASK((t)->type) & mask)
 
 struct tokseq_match {
     int mask_head;
@@ -798,81 +799,80 @@ static char *line_from_stdmac(void)
     return line;
 }
 
-#define BUF_DELTA 512
-/*
- * Read a line from the top file in istk, handling multiple CR/LFs
- * at the end of the line read, and handling spurious ^Zs. Will
- * return lines from the standard macro set if this has not already
- * been done.
- */
 static char *read_line(void)
 {
-    char *buffer, *p, *q;
-    int bufsize, continued_count;
+    unsigned int size, c, next;
+    const unsigned int delta = 512;
+    const unsigned int pad = 8;
+    unsigned int nr_cont = 0;
+    bool cont = false;
+    char *buffer, *p;
 
-    /*
-     * standart macros set (predefined) goes first
-     */
+    /* Standart macros set (predefined) goes first */
     p = line_from_stdmac();
     if (p)
         return p;
 
-    /*
-     * regular read from a file
-     */
-    bufsize = BUF_DELTA;
-    buffer = nasm_malloc(BUF_DELTA);
-    p = buffer;
-    continued_count = 0;
-    while (1) {
-        q = fgets(p, bufsize - (p - buffer), istk->fp);
-        if (!q)
+    size = delta;
+    p = buffer = nasm_malloc(size);
+
+    for (;;) {
+        c = fgetc(istk->fp);
+        if ((int)(c) == EOF) {
+            p[0] = 0;
             break;
-        p += strlen(p);
-        if (p > buffer && p[-1] == '\n') {
-            /*
-             * Convert backslash-CRLF line continuation sequences into
-             * nothing at all (for DOS and Windows)
-             */
-            if (((p - 2) > buffer) && (p[-3] == '\\') && (p[-2] == '\r')) {
-                p -= 3;
-                *p = 0;
-                continued_count++;
-            }
-            /*
-             * Also convert backslash-LF line continuation sequences into
-             * nothing at all (for Unix)
-             */
-            else if (((p - 1) > buffer) && (p[-2] == '\\')) {
-                p -= 2;
-                *p = 0;
-                continued_count++;
-            } else {
-                break;
-            }
         }
-        if (p - buffer > bufsize - 10) {
-            int32_t offset = p - buffer;
-            bufsize += BUF_DELTA;
-            buffer = nasm_realloc(buffer, bufsize);
-            p = buffer + offset;        /* prevent stale-pointer problems */
+
+        switch (c) {
+        case '\r':
+            next = fgetc(istk->fp);
+            if (next != '\n')
+                ungetc(next, istk->fp);
+            if (cont) {
+                cont = false;
+                continue;
+            }
+            break;
+
+        case '\n':
+            if (cont) {
+                cont = false;
+                continue;
+            }
+            break;
+
+        case '\\':
+            next = fgetc(istk->fp);
+            ungetc(next, istk->fp);
+            if (next == '\r' || next == '\n') {
+                cont = true;
+                nr_cont++;
+                continue;
+            }
+            break;
         }
+
+        if (c == '\r' || c == '\n') {
+            *p++ = 0;
+            break;
+        }
+
+        if (p >= (buffer + size - pad)) {
+            buffer = nasm_realloc(buffer, size + delta);
+            p = buffer + size - pad;
+            size += delta;
+        }
+
+        *p++ = (unsigned char)c;
     }
 
-    if (!q && p == buffer) {
+    if (p == buffer) {
         nasm_free(buffer);
         return NULL;
     }
 
     src_set_linnum(src_get_linnum() + istk->lineinc +
-                   (continued_count * istk->lineinc));
-
-    /*
-     * Play safe: remove CRs as well as LFs, if any of either are
-     * present at the end of the line.
-     */
-    while (--p >= buffer && (*p == '\n' || *p == '\r'))
-        *p = '\0';
+                   (nr_cont * istk->lineinc));
 
     /*
      * Handle spurious ^Z, which may be inserted into source files
@@ -1632,19 +1632,24 @@ static void count_mmac_params(Token * t, int *nparam, Token *** params)
             *params = nasm_realloc(*params, sizeof(**params) * paramsize);
         }
         skip_white_(t);
-        brace = false;
+        brace = 0;
         if (tok_is_(t, "{"))
-            brace = true;
+            brace++;
         (*params)[(*nparam)++] = t;
-        while (tok_isnt_(t, brace ? "}" : ","))
-            t = t->next;
-        if (t) {                /* got a comma/brace */
-            t = t->next;
-            if (brace) {
+        if (brace) {
+            while (brace && (t = t->next) != NULL) {
+                if (tok_is_(t, "{"))
+                    brace++;
+                else if (tok_is_(t, "}"))
+                    brace--;
+            }
+
+            if (t) {
                 /*
                  * Now we've found the closing brace, look further
                  * for the comma.
                  */
+                t = t->next;
                 skip_white_(t);
                 if (tok_isnt_(t, ",")) {
                     error(ERR_NONFATAL,
@@ -1652,9 +1657,13 @@ static void count_mmac_params(Token * t, int *nparam, Token *** params)
                     while (tok_isnt_(t, ","))
                         t = t->next;
                 }
-                if (t)
-                    t = t->next;        /* eat the comma */
             }
+        } else {
+            while (tok_isnt_(t, ","))
+                t = t->next;
+        }
+        if (t) {                /* got a comma/brace */
+            t = t->next;        /* eat the comma */
         }
     }
 }
@@ -2151,7 +2160,7 @@ static int do_directive(Token * tline)
     Context *ctx;
     Cond *cond;
     MMacro *mmac, **mmhead;
-    Token *t, *tt, *param_start, *macro_start, *last, **tptr, *origline;
+    Token *t = NULL, *tt, *param_start, *macro_start, *last, **tptr, *origline;
     Line *l;
     struct tokenval tokval;
     expr *evalresult;
@@ -2175,7 +2184,7 @@ static int do_directive(Token * tline)
      * since they are known to be buggy at moment, we need to fix them
      * in future release (2.09-2.10)
      */
-    if (i == PP_RMACRO || i == PP_RMACRO || i == PP_EXITMACRO) {
+    if (i == PP_RMACRO || i == PP_IRMACRO || i == PP_EXITMACRO) {
         error(ERR_NONFATAL, "unknown preprocessor directive `%s'",
               tline->text);
        return NO_DIRECTIVE_FOUND;
@@ -3585,119 +3594,178 @@ static int find_cc(Token * t)
     return bsii(t->text, (const char **)conditions,  ARRAY_SIZE(conditions));
 }
 
+/*
+ * This routines walks over tokens strem and hadnles tokens
+ * pasting, if @handle_explicit passed then explicit pasting
+ * term is handled, otherwise -- implicit pastings only.
+ */
 static bool paste_tokens(Token **head, const struct tokseq_match *m,
-                         int mnum, bool handle_paste_tokens)
+                         size_t mnum, bool handle_explicit)
 {
-    Token **tail, *t, *tt;
-    Token **paste_head;
-    bool did_paste = false;
-    char *tmp;
-    int i;
+    Token *tok, *next, **prev_next, **prev_nonspace;
+    bool pasted = false;
+    char *buf, *p;
+    size_t len, i;
 
-    /* Now handle token pasting... */
-    paste_head = NULL;
-    tail = head;
-    while ((t = *tail) && (tt = t->next)) {
-        switch (t->type) {
+    /*
+     * The last token before pasting. We need it
+     * to be able to connect new handled tokens.
+     * In other words if there were a tokens stream
+     *
+     * A -> B -> C -> D
+     *
+     * and we've joined tokens B and C, the resulting
+     * stream should be
+     *
+     * A -> BC -> D
+     */
+    tok = *head;
+    prev_next = NULL;
+
+    if (!tok_type_(tok, TOK_WHITESPACE) && !tok_type_(tok, TOK_PASTE))
+        prev_nonspace = head;
+    else
+        prev_nonspace = NULL;
+
+    while (tok && (next = tok->next)) {
+
+        switch (tok->type) {
         case TOK_WHITESPACE:
-            if (tt->type == TOK_WHITESPACE) {
-                /* Zap adjacent whitespace tokens */
-                t->next = delete_Token(tt);
-            } else {
-                /* Do not advance paste_head here */
-                tail = &t->next;
-            }
+            /* Zap redundant whitespaces */
+            while (tok_type_(next, TOK_WHITESPACE))
+                next = delete_Token(next);
+            tok->next = next;
             break;
-        case TOK_PASTE:         /* %+ */
-            if (handle_paste_tokens) {
-                /* Zap %+ and whitespace tokens to the right */
-                while (t && (t->type == TOK_WHITESPACE ||
-                             t->type == TOK_PASTE))
-                    t = *tail = delete_Token(t);
-                if (!t) { /* Dangling %+ term */
-                    if (paste_head)
-                        (*paste_head)->next = NULL;
-                    else
-                        *head = NULL;
-                    return did_paste;
-                }
-                tail = paste_head;
-                t = *tail;
-                tt = t->next;
-                while (tok_type_(tt, TOK_WHITESPACE))
-                    tt = t->next = delete_Token(tt);
-                if (tt) {
-                    tmp = nasm_strcat(t->text, tt->text);
-                    delete_Token(t);
-                    tt = delete_Token(tt);
-                    t = *tail = tokenize(tmp);
-                    nasm_free(tmp);
-                    while (t->next) {
-                        tail = &t->next;
-                        t = t->next;
-                    }
-                    t->next = tt; /* Attach the remaining token chain */
-                    did_paste = true;
-                }
-                paste_head = tail;
-                tail = &t->next;
+
+        case TOK_PASTE:
+            /* Explicit pasting */
+            if (!handle_explicit)
+                break;
+            next = delete_Token(tok);
+
+            while (tok_type_(next, TOK_WHITESPACE))
+                next = delete_Token(next);
+
+            if (!pasted)
+                pasted = true;
+
+            /* Left pasting token is start of line */
+            if (!prev_nonspace)
+                error(ERR_FATAL, "No lvalue found on pasting");
+
+            /*
+             * No ending token, this might happen in two
+             * cases
+             *
+             *  1) There indeed no right token at all
+             *  2) There is a bare "%define ID" statement,
+             *     and @ID does expand to whitespace.
+             *
+             * So technically we need to do a grammar analysis
+             * in another stage of parsing, but for now lets don't
+             * change the behaviour people used to. Simply allow
+             * whitespace after paste token.
+             */
+            if (!next) {
+                /*
+                 * Zap ending space tokens and that's all.
+                 */
+                tok = (*prev_nonspace)->next;
+                while (tok_type_(tok, TOK_WHITESPACE))
+                    tok = delete_Token(tok);
+                tok = *prev_nonspace;
+                tok->next = NULL;
                 break;
             }
-            /* else fall through */
+
+            tok = *prev_nonspace;
+            while (tok_type_(tok, TOK_WHITESPACE))
+                tok = delete_Token(tok);
+            len  = strlen(tok->text);
+            len += strlen(next->text);
+
+            p = buf = nasm_malloc(len + 1);
+            strcpy(p, tok->text);
+            p = strchr(p, '\0');
+            strcpy(p, next->text);
+
+            delete_Token(tok);
+
+            tok = tokenize(buf);
+            nasm_free(buf);
+
+            *prev_nonspace = tok;
+            while (tok && tok->next)
+                tok = tok->next;
+
+            tok->next = delete_Token(next);
+
+            /* Restart from pasted tokens head */
+            tok = *prev_nonspace;
+            break;
+
         default:
-            /*
-             * Concatenation of tokens might look nontrivial
-             * but in real it's pretty simple -- the caller
-             * prepares the masks of token types to be concatenated
-             * and we simply find matched sequences and slip
-             * them together
-             */
+            /* implicit pasting */
             for (i = 0; i < mnum; i++) {
-                if (PP_CONCAT_MASK(t->type) & m[i].mask_head) {
-                    size_t len = 0;
-                    char *tmp, *p;
+                if (!(PP_CONCAT_MATCH(tok, m[i].mask_head)))
+                    continue;
 
-                    while (tt && (PP_CONCAT_MASK(tt->type) & m[i].mask_tail)) {
-                        len += strlen(tt->text);
-                        tt = tt->next;
-                    }
-
-                    /*
-                     * Now tt points to the first token after
-                     * the potential paste area...
-                     */
-                    if (tt != t->next) {
-                        /* We have at least two tokens... */
-                        len += strlen(t->text);
-                        p = tmp = nasm_malloc(len+1);
-                        while (t != tt) {
-                            strcpy(p, t->text);
-                            p = strchr(p, '\0');
-                            t = delete_Token(t);
-                        }
-                        t = *tail = tokenize(tmp);
-                        nasm_free(tmp);
-                        while (t->next) {
-                            tail = &t->next;
-                            t = t->next;
-                        }
-                        t->next = tt;   /* Attach the remaining token chain */
-                        did_paste = true;
-                    }
-                    paste_head = tail;
-                    tail = &t->next;
-                    break;
+                len = 0;
+                while (next && PP_CONCAT_MATCH(next, m[i].mask_tail)) {
+                    len += strlen(next->text);
+                    next = next->next;
                 }
+
+                /* No match */
+                if (tok == next)
+                    break;
+
+                len += strlen(tok->text);
+                p = buf = nasm_malloc(len + 1);
+
+                while (tok != next) {
+                    strcpy(p, tok->text);
+                    p = strchr(p, '\0');
+                    tok = delete_Token(tok);
+                }
+
+                tok = tokenize(buf);
+                nasm_free(buf);
+
+                if (prev_next)
+                    *prev_next = tok;
+                else
+                    *head = tok;
+
+                /*
+                 * Connect pasted into original stream,
+                 * ie A -> new-tokens -> B
+                 */
+                while (tok && tok->next)
+                    tok = tok->next;
+                tok->next = next;
+
+                if (!pasted)
+                    pasted = true;
+
+                /* Restart from pasted tokens head */
+                tok = prev_next ? *prev_next : *head;
             }
-            if (i >= mnum) {    /* no match */
-                tail = &t->next;
-                if (!tok_type_(t->next, TOK_WHITESPACE))
-                    paste_head = tail;
-            }
+
             break;
         }
+
+        prev_next = &tok->next;
+
+        if (tok->next &&
+            !tok_type_(tok->next, TOK_WHITESPACE) &&
+            !tok_type_(tok->next, TOK_PASTE))
+            prev_nonspace = prev_next;
+
+        tok = tok->next;
     }
-    return did_paste;
+
+    return pasted;
 }
 
 /*
@@ -3735,19 +3803,28 @@ static Token *expand_mmac_params_range(MMacro *mac, Token *tline, Token ***last)
     fst--, lst--;
 
     /*
-     * it will be at least one token
+     * It will be at least one token. Note we
+     * need to scan params until separator, otherwise
+     * only first token will be passed.
      */
     tm = mac->params[(fst + mac->rotate) % mac->nparam];
-    t = new_Token(NULL, tm->type, tm->text, 0);
-    head = t, tt = &t->next;
+    head = new_Token(NULL, tm->type, tm->text, 0);
+    tt = &head->next, tm = tm->next;
+    while (tok_isnt_(tm, ",")) {
+        t = new_Token(NULL, tm->type, tm->text, 0);
+        *tt = t, tt = &t->next, tm = tm->next;
+    }
+
     if (fst < lst) {
         for (i = fst + 1; i <= lst; i++) {
             t = new_Token(NULL, TOK_OTHER, ",", 0);
             *tt = t, tt = &t->next;
             j = (i + mac->rotate) % mac->nparam;
             tm = mac->params[j];
-            t = new_Token(NULL, tm->type, tm->text, 0);
-            *tt = t, tt = &t->next;
+            while (tok_isnt_(tm, ",")) {
+                t = new_Token(NULL, tm->type, tm->text, 0);
+                *tt = t, tt = &t->next, tm = tm->next;
+            }
         }
     } else {
         for (i = fst - 1; i >= lst; i--) {
@@ -3755,8 +3832,10 @@ static Token *expand_mmac_params_range(MMacro *mac, Token *tline, Token ***last)
             *tt = t, tt = &t->next;
             j = (i + mac->rotate) % mac->nparam;
             tm = mac->params[j];
-            t = new_Token(NULL, tm->type, tm->text, 0);
-            *tt = t, tt = &t->next;
+            while (tok_isnt_(tm, ",")) {
+                t = new_Token(NULL, tm->type, tm->text, 0);
+                *tt = t, tt = &t->next, tm = tm->next;
+            }
         }
     }
 
@@ -4570,13 +4649,13 @@ static int expand_mmacro(Token * tline)
     paramlen = nparam ? nasm_malloc(nparam * sizeof(*paramlen)) : NULL;
 
     for (i = 0; params[i]; i++) {
-        int brace = false;
+        int brace = 0;
         int comma = (!m->plus || i < nparam - 1);
 
         t = params[i];
         skip_white_(t);
         if (tok_is_(t, "{"))
-            t = t->next, brace = true, comma = false;
+            t = t->next, brace++, comma = false;
         params[i] = t;
         paramlen[i] = 0;
         while (t) {
@@ -4585,11 +4664,18 @@ static int expand_mmacro(Token * tline)
             if (comma && t->type == TOK_WHITESPACE
                 && tok_is_(t->next, ","))
                 break;          /* ... or a space then a comma */
-            if (brace && t->type == TOK_OTHER && !strcmp(t->text, "}"))
-                break;          /* ... or a brace */
+            if (brace && t->type == TOK_OTHER) {
+                if (t->text[0] == '{')
+                    brace++;            /* ... or a nested opening brace */
+                else if (t->text[0] == '}')
+                    if (!--brace)
+                        break;          /* ... or a brace */
+            }
             t = t->next;
             paramlen[i]++;
         }
+        if (brace)
+            error(ERR_NONFATAL, "macro params should be enclosed in braces");
     }
 
     /*
@@ -5147,7 +5233,7 @@ static void pp_extra_stdmac(macros_t *macros)
 
 static void make_tok_num(Token * tok, int64_t val)
 {
-    char numbuf[20];
+    char numbuf[32];
     snprintf(numbuf, sizeof(numbuf), "%"PRId64"", val);
     tok->text = nasm_strdup(numbuf);
     tok->type = TOK_NUMBER;

@@ -1,3 +1,27 @@
+nasm (2.11-1) unstable; urgency=medium
+
+  * New upstream version 2.11 
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Sun, 16 Feb 2014 12:50:55 +1100
+
+nasm (2.10.09-1) unstable; urgency=low
+
+  * New upstream version 2.10.09
+  * Debian policy version is 3.9.5
+  * Update debian/watch
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Sun, 29 Dec 2013 13:46:31 +1100
+
+nasm (2.10.07-1) unstable; urgency=low
+
+  * New upstream version 2.10.07
+  * Debian policy version is 3.9.4
+  * debian/rules: pass CPPFLAGS through CFLAGS
+    Patch by Simon Ruderich
+    Closes: #681490
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Sat, 25 May 2013 12:37:46 +1000
+
 nasm (2.10.01-1) unstable; urgency=low
 
   * New upstream version 2.10.01

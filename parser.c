@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2013 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -89,6 +89,8 @@ static int prefix_slot(int prefix)
     case P_REPNZ:
     case P_XACQUIRE:
     case P_XRELEASE:
+    case P_BND:
+    case P_NOBND:
         return PPS_REP;
     case P_O16:
     case P_O32:
@@ -100,13 +102,17 @@ static int prefix_slot(int prefix)
     case P_A64:
     case P_ASP:
         return PPS_ASIZE;
+    case P_EVEX:
+    case P_VEX3:
+    case P_VEX2:
+        return PPS_VEX;
     default:
         nasm_error(ERR_PANIC, "Invalid value %d passed to prefix_slot()", prefix);
         return -1;
     }
 }
 
-static void process_size_override(insn *result, int operand)
+static void process_size_override(insn *result, operand *op)
 {
     if (tasm_compatible_mode) {
         switch ((int)tokval.t_integer) {
@@ -123,23 +129,23 @@ static void process_size_override(insn *result, int operand)
              * but 32-bit flat model addressing in our code.
              */
         case S_BYTE:
-            result->oprs[operand].type |= BITS8;
+            op->type |= BITS8;
             break;
         case S_WORD:
-            result->oprs[operand].type |= BITS16;
+            op->type |= BITS16;
             break;
         case S_DWORD:
         case S_LONG:
-            result->oprs[operand].type |= BITS32;
+            op->type |= BITS32;
             break;
         case S_QWORD:
-            result->oprs[operand].type |= BITS64;
+            op->type |= BITS64;
             break;
         case S_TWORD:
-            result->oprs[operand].type |= BITS80;
+            op->type |= BITS80;
             break;
         case S_OWORD:
-            result->oprs[operand].type |= BITS128;
+            op->type |= BITS128;
             break;
         default:
             nasm_error(ERR_NONFATAL,
@@ -150,17 +156,17 @@ static void process_size_override(insn *result, int operand)
         /* Standard NASM compatible syntax */
         switch ((int)tokval.t_integer) {
         case S_NOSPLIT:
-            result->oprs[operand].eaflags |= EAF_TIMESTWO;
+            op->eaflags |= EAF_TIMESTWO;
             break;
         case S_REL:
-            result->oprs[operand].eaflags |= EAF_REL;
+            op->eaflags |= EAF_REL;
             break;
         case S_ABS:
-            result->oprs[operand].eaflags |= EAF_ABS;
+            op->eaflags |= EAF_ABS;
             break;
         case S_BYTE:
-            result->oprs[operand].disp_size = 8;
-            result->oprs[operand].eaflags |= EAF_BYTEOFFS;
+            op->disp_size = 8;
+            op->eaflags |= EAF_BYTEOFFS;
             break;
         case P_A16:
         case P_A32:
@@ -173,17 +179,17 @@ static void process_size_override(insn *result, int operand)
                 result->prefixes[PPS_ASIZE] = tokval.t_integer;
             break;
         case S_WORD:
-            result->oprs[operand].disp_size = 16;
-            result->oprs[operand].eaflags |= EAF_WORDOFFS;
+            op->disp_size = 16;
+            op->eaflags |= EAF_WORDOFFS;
             break;
         case S_DWORD:
         case S_LONG:
-            result->oprs[operand].disp_size = 32;
-            result->oprs[operand].eaflags |= EAF_WORDOFFS;
+            op->disp_size = 32;
+            op->eaflags |= EAF_WORDOFFS;
             break;
         case S_QWORD:
-            result->oprs[operand].disp_size = 64;
-            result->oprs[operand].eaflags |= EAF_WORDOFFS;
+            op->disp_size = 64;
+            op->eaflags |= EAF_WORDOFFS;
             break;
         default:
             nasm_error(ERR_NONFATAL, "invalid size specification in"
@@ -193,15 +199,197 @@ static void process_size_override(insn *result, int operand)
     }
 }
 
+/*
+ * when two or more decorators follow a register operand,
+ * consecutive decorators are parsed here.
+ * opmask and zeroing decorators can be placed in any order.
+ * e.g. zmm1 {k2}{z} or zmm2 {z}{k3}
+ * decorator(s) are placed at the end of an operand.
+ */
+static bool parse_braces(decoflags_t *decoflags)
+{
+    int i;
+    bool recover = false;
+
+    i = tokval.t_type;
+    do {
+        if (i == TOKEN_OPMASK) {
+            if (*decoflags & OPMASK_MASK) {
+                nasm_error(ERR_NONFATAL, "opmask k%"PRIu64" is already set",
+                           *decoflags & OPMASK_MASK);
+                *decoflags &= ~OPMASK_MASK;
+            }
+            *decoflags |= VAL_OPMASK(nasm_regvals[tokval.t_integer]);
+        } else if (i == TOKEN_DECORATOR) {
+            switch (tokval.t_integer) {
+            case BRC_Z:
+                /*
+                 * according to AVX512 spec, only zeroing/merging decorator
+                 * is supported with opmask
+                 */
+                *decoflags |= GEN_Z(0);
+                break;
+            default:
+                nasm_error(ERR_NONFATAL, "{%s} is not an expected decorator",
+                                         tokval.t_charptr);
+                break;
+            }
+        } else if (i == ',' || i == TOKEN_EOS){
+            break;
+        } else {
+            nasm_error(ERR_NONFATAL, "only a series of valid decorators"
+                                     " expected");
+            recover = true;
+            break;
+        }
+        i = stdscan(NULL, &tokval);
+    } while(1);
+
+    return recover;
+}
+
+static int parse_mref(operand *op, const expr *e)
+{
+    int b, i, s;        /* basereg, indexreg, scale */
+    int64_t o;          /* offset */
+
+    b = i = -1;
+    o = s = 0;
+
+    if (e->type && e->type <= EXPR_REG_END) {   /* this bit's a register */
+        bool is_gpr = is_class(REG_GPR,nasm_reg_flags[e->type]);
+
+        if (is_gpr && e->value == 1)
+            b = e->type;	/* It can be basereg */
+        else            	/* No, it has to be indexreg */
+            i = e->type, s = e->value;
+        e++;
+    }
+    if (e->type && e->type <= EXPR_REG_END) {   /* it's a 2nd register */
+        bool is_gpr = is_class(REG_GPR,nasm_reg_flags[e->type]);
+
+        if (b != -1)    /* If the first was the base, ... */
+            i = e->type, s = e->value;  /* second has to be indexreg */
+
+        else if (!is_gpr || e->value != 1) {
+            /* If both want to be index */
+            nasm_error(ERR_NONFATAL,
+                       "invalid effective address: two index registers");
+            return -1;
+        } else
+            b = e->type;
+        e++;
+    }
+    if (e->type != 0) { /* is there an offset? */
+        if (e->type <= EXPR_REG_END) {  /* in fact, is there an error? */
+            nasm_error(ERR_NONFATAL,
+                       "beroset-p-603-invalid effective address");
+            return -1;
+        } else {
+            if (e->type == EXPR_UNKNOWN) {
+                op->opflags |= OPFLAG_UNKNOWN;
+                o = 0;  /* doesn't matter what */
+                op->wrt = NO_SEG;     /* nor this */
+                op->segment = NO_SEG; /* or this */
+                while (e->type)
+                    e++;        /* go to the end of the line */
+            } else {
+                if (e->type == EXPR_SIMPLE) {
+                    o = e->value;
+                    e++;
+                }
+                if (e->type == EXPR_WRT) {
+                    op->wrt = e->value;
+                    e++;
+                } else
+                    op->wrt = NO_SEG;
+                /*
+                 * Look for a segment base type.
+                 */
+                if (e->type && e->type < EXPR_SEGBASE) {
+                    nasm_error(ERR_NONFATAL,
+                               "beroset-p-630-invalid effective address");
+                    return -1;
+                }
+                while (e->type && e->value == 0)
+                    e++;
+                if (e->type && e->value != 1) {
+                    nasm_error(ERR_NONFATAL,
+                               "beroset-p-637-invalid effective address");
+                    return -1;
+                }
+                if (e->type) {
+                    op->segment = e->type - EXPR_SEGBASE;
+                    e++;
+                } else
+                    op->segment = NO_SEG;
+                while (e->type && e->value == 0)
+                    e++;
+                if (e->type) {
+                    nasm_error(ERR_NONFATAL,
+                               "beroset-p-650-invalid effective address");
+                    return -1;
+                }
+            }
+        }
+    } else {
+        o = 0;
+        op->wrt = NO_SEG;
+        op->segment = NO_SEG;
+    }
+
+    if (e->type != 0) { /* there'd better be nothing left! */
+        nasm_error(ERR_NONFATAL,
+                   "beroset-p-663-invalid effective address");
+        return -1;
+    }
+
+    op->basereg = b;
+    op->indexreg = i;
+    op->scale = s;
+    op->offset = o;
+    return 0;
+}
+
+static void mref_set_optype(operand *op)
+{
+    int b = op->basereg;
+    int i = op->indexreg;
+    int s = op->scale;
+
+    /* It is memory, but it can match any r/m operand */
+    op->type |= MEMORY_ANY;
+
+    if (b == -1 && (i == -1 || s == 0)) {
+        int is_rel = globalbits == 64 &&
+            !(op->eaflags & EAF_ABS) &&
+            ((globalrel &&
+              !(op->eaflags & EAF_FSGS)) ||
+             (op->eaflags & EAF_REL));
+
+        op->type |= is_rel ? IP_REL : MEM_OFFS;
+    }
+
+    if (i != -1) {
+        opflags_t iclass = nasm_reg_flags[i];
+
+        if (is_class(XMMREG,iclass))
+            op->type |= XMEM;
+        else if (is_class(YMMREG,iclass))
+            op->type |= YMEM;
+        else if (is_class(ZMMREG,iclass))
+            op->type |= ZMEM;
+    }
+}
+
 insn *parse_line(int pass, char *buffer, insn *result, ldfunc ldef)
 {
     bool insn_is_label = false;
     struct eval_hints hints;
-    int operand;
+    int opnum;
     int critical;
     bool first;
     bool recover;
-    int j;
 
 restart_parse:
     first               = true;
@@ -214,12 +402,12 @@ restart_parse:
     result->label       = NULL; /* Assume no label */
     result->eops        = NULL; /* must do this, whatever happens */
     result->operands    = 0;    /* must initialize this */
+    result->evex_rm     = 0;    /* Ensure EVEX rounding mode is reset */
+    result->evex_brerop = -1;   /* Reset EVEX broadcasting/ER op position */
 
     /* Ignore blank lines */
-    if (i == TOKEN_EOS) {
-        result->opcode = I_none;
-        return result;
-    }
+    if (i == TOKEN_EOS)
+        goto fail;
 
     if (i != TOKEN_ID       &&
         i != TOKEN_INSN     &&
@@ -227,8 +415,7 @@ restart_parse:
         (i != TOKEN_REG || !IS_SREG(tokval.t_integer))) {
         nasm_error(ERR_NONFATAL,
                    "label or instruction expected at start of line");
-        result->opcode = I_none;
-        return result;
+        goto fail;
     }
 
     if (i == TOKEN_ID || (insn_is_label && i == TOKEN_INSN)) {
@@ -256,13 +443,11 @@ restart_parse:
     }
 
     /* Just a label here */
-    if (i == TOKEN_EOS) {
-        result->opcode = I_none;
-        return result;
-    }
+    if (i == TOKEN_EOS)
+        goto fail;
 
-    for (j = 0; j < MAXPREFIX; j++)
-        result->prefixes[j] = P_none;
+    nasm_build_assert(P_none != 0);
+    memset(result->prefixes, P_none, sizeof(result->prefixes));
     result->times = 1L;
 
     while (i == TOKEN_PREFIX ||
@@ -278,10 +463,8 @@ restart_parse:
             i = stdscan(NULL, &tokval);
             value = evaluate(stdscan, NULL, &tokval, NULL, pass0, nasm_error, NULL);
             i = tokval.t_type;
-            if (!value) {       /* but, error in evaluator */
-                result->opcode = I_none;    /* unrecoverable parse error: */
-                return result;  /* ignore this instruction */
-            }
+            if (!value)                  /* Error in evaluator */
+                goto fail;
             if (!is_simple(value)) {
                 nasm_error(ERR_NONFATAL,
                       "non-constant argument supplied to TIMES");
@@ -332,8 +515,7 @@ restart_parse:
             return result;
         } else {
             nasm_error(ERR_NONFATAL, "parser: instruction expected");
-            result->opcode = I_none;
-            return result;
+            goto fail;
         }
     }
 
@@ -356,7 +538,8 @@ restart_parse:
     if (result->opcode == I_DB || result->opcode == I_DW ||
         result->opcode == I_DD || result->opcode == I_DQ ||
         result->opcode == I_DT || result->opcode == I_DO ||
-        result->opcode == I_DY || result->opcode == I_INCBIN) {
+        result->opcode == I_DY || result->opcode == I_DZ ||
+        result->opcode == I_INCBIN) {
         extop *eop, **tail = &result->eops, **fixptr;
         int oper_num = 0;
         int32_t sign;
@@ -364,7 +547,7 @@ restart_parse:
         result->eops_float = false;
 
         /*
-         * Begin to read the DB/DW/DD/DQ/DT/DO/INCBIN operands.
+         * Begin to read the DB/DW/DD/DQ/DT/DO/DY/DZ/INCBIN operands.
          */
         while (1) {
             i = stdscan(NULL, &tokval);
@@ -445,7 +628,7 @@ is_float:
                 eop->stringlen = idata_bytes(result->opcode);
                 if (eop->stringlen > 16) {
                     nasm_error(ERR_NONFATAL, "floating-point constant"
-                               " encountered in DY instruction");
+                               " encountered in DY or DZ instruction");
                     eop->stringlen = 0;
                 } else if (eop->stringlen < 1) {
                     nasm_error(ERR_NONFATAL, "floating-point constant"
@@ -475,10 +658,8 @@ is_expression:
                 value = evaluate(stdscan, NULL, &tokval, NULL,
                                  critical, nasm_error, NULL);
                 i = tokval.t_type;
-                if (!value) {   /* error in evaluator */
-                    result->opcode = I_none;        /* unrecoverable parse error: */
-                    return result;      /* ignore this instruction */
-                }
+                if (!value)                  /* Error in evaluator */
+                    goto fail;
                 if (is_unknown(value)) {
                     eop->type = EOT_DB_NUMBER;
                     eop->offset = 0;    /* doesn't matter what we put */
@@ -506,8 +687,7 @@ is_expression:
             if (i != ',') {
                 nasm_error(ERR_NONFATAL, "comma expected after operand %d",
                            oper_num);
-                result->opcode = I_none;/* unrecoverable parse error: */
-                return result;          /* ignore this instruction */
+                goto fail;
             }
         }
 
@@ -537,8 +717,7 @@ is_expression:
              * If we reach here, one of the above errors happened.
              * Throw the instruction away.
              */
-            result->opcode = I_none;
-            return result;
+            goto fail;
         } else /* DB ... */ if (oper_num == 0)
             nasm_error(ERR_WARNING | ERR_PASS1,
                   "no operand for data declaration");
@@ -553,15 +732,19 @@ is_expression:
      * of these, separated by commas, and terminated by a zero token.
      */
 
-    for (operand = 0; operand < MAX_OPERANDS; operand++) {
+    for (opnum = 0; opnum < MAX_OPERANDS; opnum++) {
+        operand *op = &result->oprs[opnum];
         expr *value;            /* used most of the time */
-        int mref;               /* is this going to be a memory ref? */
-        int bracket;            /* is it a [] mref, or a & mref? */
+        bool mref;              /* is this going to be a memory ref? */
+        bool bracket;           /* is it a [] mref, or a & mref? */
+        bool mib;               /* compound (mib) mref? */
         int setsize = 0;
+        decoflags_t brace_flags = 0;    /* flags for decorators in braces */
 
-        result->oprs[operand].disp_size = 0;    /* have to zero this whatever */
-        result->oprs[operand].eaflags   = 0;    /* and this */
-        result->oprs[operand].opflags   = 0;
+        op->disp_size = 0;    /* have to zero this whatever */
+        op->eaflags   = 0;    /* and this */
+        op->opflags   = 0;
+        op->decoflags = 0;
 
         i = stdscan(NULL, &tokval);
         if (i == TOKEN_EOS)
@@ -571,59 +754,64 @@ is_expression:
             goto restart_parse;
         }
         first = false;
-        result->oprs[operand].type = 0; /* so far, no override */
+        op->type = 0; /* so far, no override */
         while (i == TOKEN_SPECIAL) {    /* size specifiers */
             switch ((int)tokval.t_integer) {
             case S_BYTE:
                 if (!setsize)   /* we want to use only the first */
-                    result->oprs[operand].type |= BITS8;
+                    op->type |= BITS8;
                 setsize = 1;
                 break;
             case S_WORD:
                 if (!setsize)
-                    result->oprs[operand].type |= BITS16;
+                    op->type |= BITS16;
                 setsize = 1;
                 break;
             case S_DWORD:
             case S_LONG:
                 if (!setsize)
-                    result->oprs[operand].type |= BITS32;
+                    op->type |= BITS32;
                 setsize = 1;
                 break;
             case S_QWORD:
                 if (!setsize)
-                    result->oprs[operand].type |= BITS64;
+                    op->type |= BITS64;
                 setsize = 1;
                 break;
             case S_TWORD:
                 if (!setsize)
-                    result->oprs[operand].type |= BITS80;
+                    op->type |= BITS80;
                 setsize = 1;
                 break;
             case S_OWORD:
                 if (!setsize)
-                    result->oprs[operand].type |= BITS128;
+                    op->type |= BITS128;
                 setsize = 1;
                 break;
             case S_YWORD:
                 if (!setsize)
-                    result->oprs[operand].type |= BITS256;
+                    op->type |= BITS256;
+                setsize = 1;
+                break;
+            case S_ZWORD:
+                if (!setsize)
+                    op->type |= BITS512;
                 setsize = 1;
                 break;
             case S_TO:
-                result->oprs[operand].type |= TO;
+                op->type |= TO;
                 break;
             case S_STRICT:
-                result->oprs[operand].type |= STRICT;
+                op->type |= STRICT;
                 break;
             case S_FAR:
-                result->oprs[operand].type |= FAR;
+                op->type |= FAR;
                 break;
             case S_NEAR:
-                result->oprs[operand].type |= NEAR;
+                op->type |= NEAR;
                 break;
             case S_SHORT:
-                result->oprs[operand].type |= SHORT;
+                op->type |= SHORT;
                 break;
             default:
                 nasm_error(ERR_NONFATAL, "invalid operand size specification");
@@ -636,30 +824,35 @@ is_expression:
             bracket = (i == '[');
             i = stdscan(NULL, &tokval); /* then skip the colon */
             while (i == TOKEN_SPECIAL || i == TOKEN_PREFIX) {
-                process_size_override(result, operand);
+                process_size_override(result, op);
                 i = stdscan(NULL, &tokval);
+            }
+            /* when a comma follows an opening bracket - [ , eax*4] */
+            if (i == ',') {
+                /* treat as if there is a zero displacement virtually */
+                tokval.t_type = TOKEN_NUM;
+                tokval.t_integer = 0;
+                stdscan_set(stdscan_get() - 1);     /* rewind the comma */
             }
         } else {                /* immediate operand, or register */
             mref = false;
             bracket = false;    /* placate optimisers */
         }
 
-        if ((result->oprs[operand].type & FAR) && !mref &&
+        if ((op->type & FAR) && !mref &&
             result->opcode != I_JMP && result->opcode != I_CALL) {
             nasm_error(ERR_NONFATAL, "invalid use of FAR operand specifier");
         }
 
         value = evaluate(stdscan, NULL, &tokval,
-                         &result->oprs[operand].opflags,
+                         &op->opflags,
                          critical, nasm_error, &hints);
         i = tokval.t_type;
-        if (result->oprs[operand].opflags & OPFLAG_FORWARD) {
+        if (op->opflags & OPFLAG_FORWARD) {
             result->forw_ref = true;
         }
-        if (!value) {           /* nasm_error in evaluator */
-            result->opcode = I_none;        /* unrecoverable parse error: */
-            return result;      /* ignore this instruction */
-        }
+        if (!value)                  /* Error in evaluator */
+            goto fail;
         if (i == ':' && mref) { /* it was seg:offset */
             /*
              * Process the segment override.
@@ -674,26 +867,74 @@ is_expression:
             else {
                 result->prefixes[PPS_SEG] = value->type;
                 if (IS_FSGS(value->type))
-                    result->oprs[operand].eaflags |= EAF_FSGS;
+                    op->eaflags |= EAF_FSGS;
             }
 
             i = stdscan(NULL, &tokval); /* then skip the colon */
             while (i == TOKEN_SPECIAL || i == TOKEN_PREFIX) {
-                process_size_override(result, operand);
+                process_size_override(result, op);
                 i = stdscan(NULL, &tokval);
             }
             value = evaluate(stdscan, NULL, &tokval,
-                             &result->oprs[operand].opflags,
+                             &op->opflags,
                              critical, nasm_error, &hints);
             i = tokval.t_type;
-            if (result->oprs[operand].opflags & OPFLAG_FORWARD) {
+            if (op->opflags & OPFLAG_FORWARD) {
                 result->forw_ref = true;
             }
             /* and get the offset */
-            if (!value) {       /* but, error in evaluator */
-                result->opcode = I_none;    /* unrecoverable parse error: */
-                return result;  /* ignore this instruction */
+            if (!value)                  /* Error in evaluator */
+                goto fail;
+        }
+
+        mib = false;
+        if (mref && bracket && i == ',') {
+            /* [seg:base+offset,index*scale] syntax (mib) */
+
+            operand o1, o2;     /* Partial operands */
+
+            if (parse_mref(&o1, value))
+                goto fail;
+
+            i = stdscan(NULL, &tokval); /* Eat comma */
+            value = evaluate(stdscan, NULL, &tokval, &op->opflags,
+                             critical, nasm_error, &hints);
+            i = tokval.t_type;
+
+            if (parse_mref(&o2, value))
+                goto fail;
+
+            if (o2.basereg != -1 && o2.indexreg == -1) {
+                o2.indexreg = o2.basereg;
+                o2.scale = 1;
+                o2.basereg = -1;
             }
+
+            if (o1.indexreg != -1 || o2.basereg != -1 || o2.offset != 0 ||
+                o2.segment != NO_SEG || o2.wrt != NO_SEG) {
+                nasm_error(ERR_NONFATAL, "invalid mib expression");
+                goto fail;
+            }
+
+            op->basereg = o1.basereg;
+            op->indexreg = o2.indexreg;
+            op->scale = o2.scale;
+            op->offset = o1.offset;
+            op->segment = o1.segment;
+            op->wrt = o1.wrt;
+
+            if (op->basereg != -1) {
+                op->hintbase = op->basereg;
+                op->hinttype = EAH_MAKEBASE;
+            } else if (op->indexreg != -1) {
+                op->hintbase = op->indexreg;
+                op->hinttype = EAH_NOTBASE;
+            } else {
+                op->hintbase = -1;
+                op->hinttype = EAH_NOHINT;
+            }
+
+            mib = true;
         }
 
         recover = false;
@@ -703,17 +944,41 @@ is_expression:
                 recover = true;
             } else {            /* we got the required ] */
                 i = stdscan(NULL, &tokval);
+                if ((i == TOKEN_DECORATOR) || (i == TOKEN_OPMASK)) {
+                    /*
+                     * according to AVX512 spec, broacast or opmask decorator
+                     * is expected for memory reference operands
+                     */
+                    if (tokval.t_flag & TFLAG_BRDCAST) {
+                        brace_flags |= GEN_BRDCAST(0) |
+                                       VAL_BRNUM(tokval.t_integer - BRC_1TO8);
+                        i = stdscan(NULL, &tokval);
+                    } else if (i == TOKEN_OPMASK) {
+                        brace_flags |= VAL_OPMASK(nasm_regvals[tokval.t_integer]);
+                        i = stdscan(NULL, &tokval);
+                    } else {
+                        nasm_error(ERR_NONFATAL, "broadcast or opmask "
+                                   "decorator expected inside braces");
+                        recover = true;
+                    }
+                }
+
                 if (i != 0 && i != ',') {
                     nasm_error(ERR_NONFATAL, "comma or end of line expected");
                     recover = true;
                 }
             }
         } else {                /* immediate operand */
-            if (i != 0 && i != ',' && i != ':') {
-                nasm_error(ERR_NONFATAL, "comma, colon or end of line expected");
+            if (i != 0 && i != ',' && i != ':' &&
+                i != TOKEN_DECORATOR && i != TOKEN_OPMASK) {
+                nasm_error(ERR_NONFATAL, "comma, colon, decorator or end of "
+                                         "line expected after operand");
                 recover = true;
             } else if (i == ':') {
-                result->oprs[operand].type |= COLON;
+                op->type |= COLON;
+            } else if (i == TOKEN_DECORATOR || i == TOKEN_OPMASK) {
+                /* parse opmask (and zeroing) after an operand */
+                recover = parse_braces(&brace_flags);
             }
         }
         if (recover) {
@@ -726,170 +991,78 @@ is_expression:
          * now convert the exprs returned from evaluate()
          * into operand descriptions...
          */
+        op->decoflags |= brace_flags;
 
         if (mref) {             /* it's a memory reference */
-            expr *e = value;
-            int b, i, s;        /* basereg, indexreg, scale */
-            int64_t o;          /* offset */
-
-            b = i = -1, o = s = 0;
-            result->oprs[operand].hintbase = hints.base;
-            result->oprs[operand].hinttype = hints.type;
-
-            if (e->type && e->type <= EXPR_REG_END) {   /* this bit's a register */
-                if (e->value == 1)      /* in fact it can be basereg */
-                    b = e->type;
-                else            /* no, it has to be indexreg */
-                    i = e->type, s = e->value;
-                e++;
+            /* A mib reference was fully parsed already */
+            if (!mib) {
+                if (parse_mref(op, value))
+                    goto fail;
+                op->hintbase = hints.base;
+                op->hinttype = hints.type;
             }
-            if (e->type && e->type <= EXPR_REG_END) {   /* it's a 2nd register */
-                if (b != -1)    /* If the first was the base, ... */
-                    i = e->type, s = e->value;  /* second has to be indexreg */
-
-                else if (e->value != 1) {       /* If both want to be index */
-                    nasm_error(ERR_NONFATAL,
-                          "beroset-p-592-invalid effective address");
-                    result->opcode = I_none;
-                    return result;
-                } else
-                    b = e->type;
-                e++;
-            }
-            if (e->type != 0) { /* is there an offset? */
-                if (e->type <= EXPR_REG_END) {  /* in fact, is there an error? */
-                    nasm_error(ERR_NONFATAL,
-                          "beroset-p-603-invalid effective address");
-                    result->opcode = I_none;
-                    return result;
-                } else {
-                    if (e->type == EXPR_UNKNOWN) {
-                        result->oprs[operand].opflags |= OPFLAG_UNKNOWN;
-                        o = 0;  /* doesn't matter what */
-                        result->oprs[operand].wrt = NO_SEG;     /* nor this */
-                        result->oprs[operand].segment = NO_SEG; /* or this */
-                        while (e->type)
-                            e++;        /* go to the end of the line */
-                    } else {
-                        if (e->type == EXPR_SIMPLE) {
-                            o = e->value;
-                            e++;
-                        }
-                        if (e->type == EXPR_WRT) {
-                            result->oprs[operand].wrt = e->value;
-                            e++;
-                        } else
-                            result->oprs[operand].wrt = NO_SEG;
-                        /*
-                         * Look for a segment base type.
-                         */
-                        if (e->type && e->type < EXPR_SEGBASE) {
-                            nasm_error(ERR_NONFATAL,
-                                  "beroset-p-630-invalid effective address");
-                            result->opcode = I_none;
-                            return result;
-                        }
-                        while (e->type && e->value == 0)
-                            e++;
-                        if (e->type && e->value != 1) {
-                            nasm_error(ERR_NONFATAL,
-                                  "beroset-p-637-invalid effective address");
-                            result->opcode = I_none;
-                            return result;
-                        }
-                        if (e->type) {
-                            result->oprs[operand].segment =
-                                e->type - EXPR_SEGBASE;
-                            e++;
-                        } else
-                            result->oprs[operand].segment = NO_SEG;
-                        while (e->type && e->value == 0)
-                            e++;
-                        if (e->type) {
-                            nasm_error(ERR_NONFATAL,
-                                  "beroset-p-650-invalid effective address");
-                            result->opcode = I_none;
-                            return result;
-                        }
-                    }
-                }
-            } else {
-                o = 0;
-                result->oprs[operand].wrt = NO_SEG;
-                result->oprs[operand].segment = NO_SEG;
-            }
-
-            if (e->type != 0) { /* there'd better be nothing left! */
-                nasm_error(ERR_NONFATAL,
-                      "beroset-p-663-invalid effective address");
-                result->opcode = I_none;
-                return result;
-            }
-
-            /* It is memory, but it can match any r/m operand */
-            result->oprs[operand].type |= MEMORY_ANY;
-
-            if (b == -1 && (i == -1 || s == 0)) {
-                int is_rel = globalbits == 64 &&
-                    !(result->oprs[operand].eaflags & EAF_ABS) &&
-                    ((globalrel &&
-                      !(result->oprs[operand].eaflags & EAF_FSGS)) ||
-                     (result->oprs[operand].eaflags & EAF_REL));
-
-                result->oprs[operand].type |= is_rel ? IP_REL : MEM_OFFS;
-            }
-            result->oprs[operand].basereg = b;
-            result->oprs[operand].indexreg = i;
-            result->oprs[operand].scale = s;
-            result->oprs[operand].offset = o;
+            mref_set_optype(op);
         } else {                /* it's not a memory reference */
             if (is_just_unknown(value)) {       /* it's immediate but unknown */
-                result->oprs[operand].type      |= IMMEDIATE;
-                result->oprs[operand].opflags   |= OPFLAG_UNKNOWN;
-                result->oprs[operand].offset    = 0;        /* don't care */
-                result->oprs[operand].segment   = NO_SEG;   /* don't care again */
-                result->oprs[operand].wrt       = NO_SEG;   /* still don't care */
+                op->type      |= IMMEDIATE;
+                op->opflags   |= OPFLAG_UNKNOWN;
+                op->offset    = 0;        /* don't care */
+                op->segment   = NO_SEG;   /* don't care again */
+                op->wrt       = NO_SEG;   /* still don't care */
 
-                if(optimizing >= 0 && !(result->oprs[operand].type & STRICT)) {
+                if(optimizing >= 0 && !(op->type & STRICT)) {
                     /* Be optimistic */
-                    result->oprs[operand].type |=
-                            SBYTE16 | SBYTE32 | SBYTE64 | UDWORD64 | SDWORD64;
+                    op->type |=
+                        UNITY | SBYTEWORD | SBYTEDWORD | UDWORD | SDWORD;
                 }
             } else if (is_reloc(value)) {       /* it's immediate */
-                result->oprs[operand].type      |= IMMEDIATE;
-                result->oprs[operand].offset    = reloc_value(value);
-                result->oprs[operand].segment   = reloc_seg(value);
-                result->oprs[operand].wrt       = reloc_wrt(value);
+                op->type      |= IMMEDIATE;
+                op->offset    = reloc_value(value);
+                op->segment   = reloc_seg(value);
+                op->wrt       = reloc_wrt(value);
 
                 if (is_simple(value)) {
-                    if (reloc_value(value) == 1)
-                        result->oprs[operand].type |= UNITY;
+                    uint64_t n = reloc_value(value);
+                    if (n == 1)
+                        op->type |= UNITY;
                     if (optimizing >= 0 &&
-                        !(result->oprs[operand].type & STRICT)) {
-                        int64_t v64 = reloc_value(value);
-                        int32_t v32 = (int32_t)v64;
-                        int16_t v16 = (int16_t)v32;
-
-                        if (v64 >= -128 && v64 <= 127)
-                            result->oprs[operand].type |= SBYTE64;
-                        if (v32 >= -128 && v32 <= 127)
-                            result->oprs[operand].type |= SBYTE32;
-                        if (v16 >= -128 && v16 <= 127)
-                            result->oprs[operand].type |= SBYTE16;
-                        if ((uint64_t)v64 <= UINT64_C(0xffffffff))
-                            result->oprs[operand].type |= UDWORD64;
-                        if (v64 >= -INT64_C(0x80000000) &&
-                            v64 <=  INT64_C(0x7fffffff))
-                            result->oprs[operand].type |= SDWORD64;
+                        !(op->type & STRICT)) {
+                        if ((uint32_t) (n + 128) <= 255)
+                            op->type |= SBYTEDWORD;
+                        if ((uint16_t) (n + 128) <= 255)
+                            op->type |= SBYTEWORD;
+                        if (n <= 0xFFFFFFFF)
+                            op->type |= UDWORD;
+                        if (n + 0x80000000 <= 0xFFFFFFFF)
+                            op->type |= SDWORD;
                     }
                 }
+            } else if(value->type == EXPR_RDSAE) {
+                /*
+                 * it's not an operand but a rounding or SAE decorator.
+                 * put the decorator information in the (opflag_t) type field
+                 * of previous operand.
+                 */
+                opnum--; op--;
+                switch (value->value) {
+                case BRC_RN:
+                case BRC_RU:
+                case BRC_RD:
+                case BRC_RZ:
+                case BRC_SAE:
+                    op->decoflags |= (value->value == BRC_SAE ? SAE : ER);
+                    result->evex_rm = value->value;
+                    break;
+                default:
+                    nasm_error(ERR_NONFATAL, "invalid decorator");
+                    break;
+                }
             } else {            /* it's a register */
-                unsigned int rs;
+                opflags_t rs;
 
                 if (value->type >= EXPR_SIMPLE || value->value != 1) {
                     nasm_error(ERR_NONFATAL, "invalid operand type");
-                    result->opcode = I_none;
-                    return result;
+                    goto fail;
                 }
 
                 /*
@@ -898,40 +1071,44 @@ is_expression:
                 for (i = 1; value[i].type; i++)
                     if (value[i].value) {
                         nasm_error(ERR_NONFATAL, "invalid operand type");
-                        result->opcode = I_none;
-                        return result;
+                        goto fail;
                     }
 
                 /* clear overrides, except TO which applies to FPU regs */
-                if (result->oprs[operand].type & ~TO) {
+                if (op->type & ~TO) {
                     /*
                      * we want to produce a warning iff the specified size
                      * is different from the register size
                      */
-                    rs = result->oprs[operand].type & SIZE_MASK;
+                    rs = op->type & SIZE_MASK;
                 } else
                     rs = 0;
 
-                result->oprs[operand].type      &= TO;
-                result->oprs[operand].type      |= REGISTER;
-                result->oprs[operand].type      |= nasm_reg_flags[value->type];
-                result->oprs[operand].basereg   = value->type;
+                op->type      &= TO;
+                op->type      |= REGISTER;
+                op->type      |= nasm_reg_flags[value->type];
+                op->decoflags |= brace_flags;
+                op->basereg   = value->type;
 
-                if (rs && (result->oprs[operand].type & SIZE_MASK) != rs)
+                if (rs && (op->type & SIZE_MASK) != rs)
                     nasm_error(ERR_WARNING | ERR_PASS1,
                           "register size specification ignored");
             }
         }
+
+        /* remember the position of operand having broadcasting/ER mode */
+        if (op->decoflags & (BRDCAST_MASK | ER | SAE))
+            result->evex_brerop = opnum;
     }
 
-    result->operands = operand; /* set operand count */
+    result->operands = opnum; /* set operand count */
 
     /* clear remaining operands */
-    while (operand < MAX_OPERANDS)
-        result->oprs[operand++].type = 0;
+    while (opnum < MAX_OPERANDS)
+        result->oprs[opnum++].type = 0;
 
     /*
-     * Transform RESW, RESD, RESQ, REST, RESO, RESY into RESB.
+     * Transform RESW, RESD, RESQ, REST, RESO, RESY, RESZ into RESB.
      */
     switch (result->opcode) {
     case I_RESW:
@@ -958,10 +1135,18 @@ is_expression:
         result->opcode = I_RESB;
         result->oprs[0].offset *= 32;
         break;
+    case I_RESZ:
+        result->opcode = I_RESB;
+        result->oprs[0].offset *= 64;
+        break;
     default:
         break;
     }
 
+    return result;
+
+fail:
+    result->opcode = I_none;
     return result;
 }
 
