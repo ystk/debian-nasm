@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2013 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2014 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -1365,10 +1365,12 @@ static int64_t calcsize(int32_t segment, int64_t offset, int bits,
 static inline unsigned int emit_rex(insn *ins, int32_t segment, int64_t offset, int bits)
 {
     if (bits == 64) {
-        if ((ins->rex & REX_REAL) && !(ins->rex & (REX_V | REX_EV))) {
-            ins->rex = (ins->rex & REX_REAL) | REX_P;
-            out(offset, segment, &ins->rex, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
-            ins->rex = 0;
+        if ((ins->rex & REX_REAL) &&
+            !(ins->rex & (REX_V | REX_EV)) &&
+            !ins->rex_done) {
+            int rex = (ins->rex & REX_REAL) | REX_P;
+            out(offset, segment, &rex, OUT_RAWDATA, 1, NO_SEG, NO_SEG);
+            ins->rex_done = true;
             return 1;
         }
     }
@@ -1389,6 +1391,8 @@ static void gencode(int32_t segment, int64_t offset, int bits,
     const uint8_t *codes = temp->code;
     uint8_t opex = 0;
     enum ea_type eat = EA_SCALAR;
+
+    ins->rex_done = false;
 
     while (*codes) {
         c = *codes++;
@@ -1997,9 +2001,6 @@ static int evexflags(int val, decoflags_t deco,
 static int op_evexflags(const operand * o, int mask, uint8_t byte)
 {
     int val;
-
-    if (!is_register(o->basereg))
-        errfunc(ERR_PANIC, "invalid operand passed to op_evexflags()");
 
     val = nasm_regvals[o->basereg];
 
