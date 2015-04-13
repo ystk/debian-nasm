@@ -1,3 +1,11 @@
+nasm (2.11.05-1) unstable; urgency=medium
+
+  * New upstream version 2.11.05.
+  * Use default compression for binary packages.
+  * Refresh patches.
+
+ -- Anibal Monsalve Salazar <anibal@debian.org>  Tue, 09 Sep 2014 05:22:04 +0100
+
 nasm (2.11-1) unstable; urgency=medium
 
   * New upstream version 2.11 

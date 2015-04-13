@@ -1,5 +1,7 @@
---- nasm-0.99.05.orig/ndisasm.man
-+++ nasm-0.99.05/ndisasm.man
+Index: nasm-2.11.05/ndisasm.man
+===================================================================
+--- /dev/null
++++ nasm-2.11.05/ndisasm.man
 @@ -0,0 +1,91 @@
 +NDISASM(1)                                                          NDISASM(1)
 +

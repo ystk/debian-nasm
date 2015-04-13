@@ -51,7 +51,7 @@ binary-arch: build
 	dh_shlibdeps
 	dh_gencontrol
 	dh_md5sums
-	dh_builddeb -- -Zbzip2 -z9
+	dh_builddeb
 
 binary-indep: build
 
